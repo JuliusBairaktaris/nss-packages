@@ -32,6 +32,7 @@ define KernelPackage/qca-nss-ecm
 		   +@(TARGET_qualcommax||TARGET_ipq806x):NSS_DRV_VIRT_IF_ENABLE \
 		   +@((TARGET_qualcommax||TARGET_ipq806x)&&PACKAGE_kmod-pppoe):NSS_DRV_PPPOE_ENABLE \
 		   +PACKAGE_kmod-qca-nss-drv:kmod-qca-nss-drv \
+		   +PACKAGE_kmod-qca-mcs:kmod-qca-mcs \
 		   +PACKAGE_kmod-bonding:kmod-bonding \
 		   +PACKAGE_kmod-vxlan:kmod-vxlan \
 		   +PACKAGE_kmod-nat46:kmod-nat46 \
@@ -71,6 +72,7 @@ EXTRA_CFLAGS+= -Wno-error
 
 EXTRA_CFLAGS+= \
 		 -I$(STAGING_DIR)/usr/include/qca-nss-drv \
+		 -I$(STAGING_DIR)/usr/include/qca-mcs \
 		 -I$(STAGING_DIR)/usr/include/nat46
 
 ifneq (, $(findstring $(CONFIG_TARGET_BOARD), "qualcommax" "ipq60xx"))
@@ -115,6 +117,10 @@ endif
 
 ifneq ($(CONFIG_PACKAGE_kmod-macvlan),)
 ECM_MAKE_OPTS+=ECM_INTERFACE_MACVLAN_ENABLE=y
+endif
+
+ifneq ($(CONFIG_PACKAGE_kmod-qca-mcs),)
+ECM_MAKE_OPTS+=ECM_MULTICAST_ENABLE=y
 endif
 
 ifneq ($(CONFIG_PACKAGE_kmod-nat46),)
