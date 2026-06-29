@@ -1,0 +1,37 @@
+diff -ruN a/nss_qdisc/nss_qdisc_stats.c b/nss_qdisc/nss_qdisc_stats.c
+--- a/nss_qdisc/nss_qdisc_stats.c	2026-07-02 18:59:00.959182732 +0200
++++ b/nss_qdisc/nss_qdisc_stats.c	2026-07-02 18:59:15.980481862 +0200
+@@ -644,6 +644,16 @@
+ 		return;
+ 	}
+ 
++	/*
++	 * During tree teardown the kernel points the device root at
++	 * noop_qdisc before destroying the old hierarchy. noop_qdisc has no
++	 * private area, so it must not be passed to qdisc_priv(); the stats
++	 * hash table is freed along with the real root qdisc anyway.
++	 */
++	if (rqdisc == &noop_qdisc) {
++		return;
++	}
++
+ 	rnq = qdisc_priv(rqdisc);
+ 	if (!rnq || !rnq->stats_wq) {
+ 		nss_qdisc_warning(" Error, stats wq should be initialized by now for root qdisc:%x\n", rnq?rnq->qos_tag:0);
+@@ -677,6 +687,16 @@
+ 		return;
+ 	}
+ 
++	/*
++	 * During tree teardown the kernel points the device root at
++	 * noop_qdisc before destroying the old hierarchy. noop_qdisc has no
++	 * private area, so it must not be passed to qdisc_priv(); the stats
++	 * hash table is freed along with the real root qdisc anyway.
++	 */
++	if (rqdisc == &noop_qdisc) {
++		return;
++	}
++
+ 	rnq = qdisc_priv(rqdisc);
+ 	if (!rnq || !rnq->stats_wq) {
+ 		nss_qdisc_warning(" Error, stats wq should be initialized by now for root qdisc:%x\n", rnq?rnq->qos_tag:0);
