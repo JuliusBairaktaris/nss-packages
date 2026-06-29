@@ -87,6 +87,24 @@ define KernelPackage/qca-nss-drv-igs/description
 Linux action that helps in offloading traffic to an IFB interface to perform ingress shaping.
 endef
 
+define KernelPackage/qca-nss-drv-bridge-mgr
+  SECTION:=kernel
+  CATEGORY:=Kernel modules
+  SUBMENU:=Network Devices
+  TITLE:=NSS bridge manager (hardware bridge offload)
+  DEPENDS:=@(TARGET_qualcommax_ipq807x||TARGET_qualcommax_ipq60xx) \
+	   +kmod-qca-nss-drv \
+	   +@NSS_DRV_BRIDGE_ENABLE \
+	   +kmod-qca-ppe-nss
+  FILES:=$(PKG_BUILD_DIR)/bridge/qca-nss-bridge-mgr.ko
+endef
+
+define KernelPackage/qca-nss-drv-bridge-mgr/Description
+Offloads Linux-bridge L2 forwarding into the NSS firmware by binding the
+bridge's qca_ppe member ports to a firmware bridge interface. No AUTOLOAD:
+loaded at runtime after the NSS data plane is up (see nss-up).
+endef
+
 # Vendor code is not warning-clean; openwrt main enables
 # CONFIG_KERNEL_WERROR which leaks -Werror into external modules.
 EXTRA_CFLAGS+= -Wno-error
@@ -111,6 +129,10 @@ ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-pppoe),)
 NSS_CLIENTS_MAKE_OPTS+=pppoe=y
 endif
 
+ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-bridge-mgr),)
+NSS_CLIENTS_MAKE_OPTS+=bridge-mgr=y
+endif
+
 EXTRA_CFLAGS+= \
 	-Wno-missing-prototypes \
 	-Wno-missing-declarations \
@@ -131,3 +153,4 @@ endef
 $(eval $(call KernelPackage,qca-nss-drv-pppoe))
 $(eval $(call KernelPackage,qca-nss-drv-qdisc))
 $(eval $(call KernelPackage,qca-nss-drv-igs))
+$(eval $(call KernelPackage,qca-nss-drv-bridge-mgr))
