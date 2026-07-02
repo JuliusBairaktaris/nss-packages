@@ -108,8 +108,9 @@ bridge's qca_ppe member ports to a firmware bridge interface. No AUTOLOAD:
 loaded at runtime after the NSS data plane is up (see nss-up).
 endef
 
-# Vendor code is not warning-clean; openwrt main enables
-# CONFIG_KERNEL_WERROR which leaks -Werror into external modules.
+# Vendor code is not warning-clean; keep warnings non-fatal. The accumulated
+# EXTRA_CFLAGS are handed to kbuild via NOSTDINC_FLAGS: kbuild dropped
+# EXTRA_CFLAGS support in kernel 6.15.
 EXTRA_CFLAGS+= -Wno-error
 
 EXTRA_CFLAGS+= \
@@ -146,7 +147,8 @@ define Build/Compile
 	  CROSS_COMPILE="$(TARGET_CROSS)" \
 	  ARCH="$(LINUX_KARCH)" \
 	  M="$(PKG_BUILD_DIR)" \
-	  EXTRA_CFLAGS="$(EXTRA_CFLAGS) -include $(PKG_BUILD_DIR)/compat.h" \
+	  NOSTDINC_FLAGS="$(KERNEL_NOSTDINC_FLAGS) $(EXTRA_CFLAGS)" \
+	  CFLAGS_MODULE="-include $(PKG_BUILD_DIR)/compat.h -Wno-error" \
 	  SoC=$(SOC) \
 	  $(KERNEL_MAKE_FLAGS) \
 	  $(PKG_JOBS) \

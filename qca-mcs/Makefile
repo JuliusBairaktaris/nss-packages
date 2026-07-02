@@ -48,9 +48,9 @@ define Build/InstallDev
 	$(foreach header_file,$(QCA_MC_SNOOPING_HEADERS), $(CP) $(header_file) $(1)/usr/include/;)
 endef
 
-# Vendor code is not warning-clean; openwrt main enables CONFIG_KERNEL_WERROR
-# which leaks -Werror into external modules (header-guard, missing-prototypes,
-# unused-variable). Same treatment as qca-nss-ecm / qca-nss-drv.
+# Vendor code is not warning-clean; keep warnings non-fatal. The accumulated
+# EXTRA_CFLAGS are handed to kbuild via NOSTDINC_FLAGS: kbuild dropped
+# EXTRA_CFLAGS support in kernel 6.15.
 EXTRA_CFLAGS+=-Wno-implicit-fallthrough -Wno-error
 
 QCA_MC_SNOOPING_MAKE_OPTS:= \
@@ -68,7 +68,7 @@ define Build/Compile
       KBUILDPATH=$(LINUX_DIR) \
       $(PKG_MAKE_FLAGS) \
       M=$(PKG_BUILD_DIR) \
-      EXTRA_CFLAGS="$(EXTRA_CFLAGS)" \
+      NOSTDINC_FLAGS="$(KERNEL_NOSTDINC_FLAGS) $(EXTRA_CFLAGS)" \
       $(strip $(QCA_MC_SNOOPING_MAKE_OPTS)) \
       modules
 endef
