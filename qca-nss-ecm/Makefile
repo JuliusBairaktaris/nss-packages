@@ -66,8 +66,9 @@ define KernelPackage/qca-nss-ecm/install
 	$(INSTALL_DATA) ./files/disable_offloads.hotplug $(1)/etc/hotplug.d/net/99-disable_offloads
 endef
 
-# Vendor code is not warning-clean; openwrt main enables
-# CONFIG_KERNEL_WERROR which leaks -Werror into external modules.
+# Vendor code is not warning-clean; keep warnings non-fatal. The accumulated
+# EXTRA_CFLAGS are handed to kbuild via NOSTDINC_FLAGS: kbuild dropped
+# EXTRA_CFLAGS support in kernel 6.15.
 EXTRA_CFLAGS+= -Wno-error
 
 EXTRA_CFLAGS+= \
@@ -188,7 +189,7 @@ define Build/Compile
 		CROSS_COMPILE="$(TARGET_CROSS)" \
 		ARCH="$(LINUX_KARCH)" \
 		M="$(PKG_BUILD_DIR)" \
-		EXTRA_CFLAGS="$(EXTRA_CFLAGS)" \
+		NOSTDINC_FLAGS="$(KERNEL_NOSTDINC_FLAGS) $(EXTRA_CFLAGS)" \
 		SoC=$(SOC) \
 		$(KERNEL_MAKE_FLAGS) \
 		$(PKG_JOBS) \

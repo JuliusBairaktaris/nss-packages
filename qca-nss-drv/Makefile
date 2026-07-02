@@ -121,8 +121,9 @@ ifneq (, $(findstring $(subtarget), "ipq807x" "ipq807x_64" "ipq60xx" "ipq60xx_64
 endif
 endef
 
-# Vendor code is not warning-clean; the new openwrt main enables
-# CONFIG_KERNEL_WERROR which leaks -Werror into external modules.
+# Vendor code is not warning-clean; keep warnings non-fatal. The accumulated
+# EXTRA_CFLAGS are handed to kbuild via NOSTDINC_FLAGS: kbuild dropped
+# EXTRA_CFLAGS support in kernel 6.15.
 EXTRA_CFLAGS+= -Wno-error
 
 EXTRA_CFLAGS+= -I$(STAGING_DIR)/usr/include/qca-ppe-nss \
@@ -350,7 +351,7 @@ define Build/Compile
 		CROSS_COMPILE="$(TARGET_CROSS)" \
 		ARCH="$(LINUX_KARCH)" \
 		M="$(PKG_BUILD_DIR)" \
-		EXTRA_CFLAGS="$(EXTRA_CFLAGS)" \
+		NOSTDINC_FLAGS="$(KERNEL_NOSTDINC_FLAGS) $(EXTRA_CFLAGS)" \
 		SoC=$(SOC) \
 		$(KERNEL_MAKE_FLAGS) \
 		$(PKG_JOBS) \
