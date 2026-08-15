@@ -1,0 +1,71 @@
+From: Julius Bairaktaris <julius@bairaktaris.de>
+Subject: [PATCH] nss_core: close the N2H netdev lifetime race
+
+nss_core_unregister_subsys_dp() clears subsys_dp_register[if_num] and
+returns, and the caller then frees the netdev. Nothing waits for the
+receive path, which reads that same ndev from the NAPI poll. The vendor
+marked one instance of it themselves:
+
+  /* TODO: Need to ensure the ndev is not removed before we take
+   * dev_hold(). */
+
+The hole is wider than that comment. nss_core_handle_virt_if_pkt() at
+least takes a dev_hold() on the pointer it read, so only the window
+between the read and the hold is exposed. Its siblings do not hold at
+all: nss_core_handle_crypto_pkt() and the ext-data path pass ndev
+straight into cb()/ext_cb(), the phys-if data path holds only inside its
+service-code branch, and around eighteen nss_*_msg_handler() functions
+across the subsystem files read the same field into ncm->app_data and
+hand it to their registered callback. Fixing only the site carrying the
+comment would have left every one of those still exposed.
+
+So do it once, on the side that has exactly one writer. Clearing the
+field already stops a later poll from finding the netdev; add the
+barrier that waits out the poll which read it before the clear, and the
+caller's free is safe for every reader without any reader changing.
+softirq is an RCU read-side critical section on non-preemptible kernels
+- CONFIG_PREEMPT_NONE with TREE_RCU is what this target builds - which
+is what makes synchronize_net() sufficient here. On a CONFIG_PREEMPT_RCU
+kernel the readers would need an explicit rcu_read_lock() as well.
+
+This makes nss_core_unregister_subsys_dp() a sleeping function. Note
+that synchronize_rcu()'s might_sleep() is not a safety net here: OpenWrt
+ships with CONFIG_DEBUG_ATOMIC_SLEEP unset, so it compiles to nothing and
+an atomic caller would sleep silently rather than warn. The contract is
+therefore carried by inspection, not by the kernel: every in-tree caller
+is a subsystem unregister running in process context on netdev teardown
+- nss_gre*, nss_ipsec*, nss_dtls*, nss_capwap, nss_bridge, nss_pptp,
+nss_portid, nss_clmap, nss_crypto*, nss_wifi_mesh and the rest - and that
+has to be re-checked on every QSDK pin bump.
+
+NOT VALIDATED ON HARDWARE, and there is no reproduction - the window is
+a few instructions wide. The change is a barrier rather than a
+behaviour bet, but the sleeping-context contract it puts on an exported
+symbol is the part that wants a device pass and a look at the
+out-of-tree callers in ecm/clients/mcs.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_core.c
+===================================================================
+--- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_core.c
++++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_core.c
+@@ -402,6 +402,18 @@ void nss_core_unregister_subsys_dp(struc
+ 	reg->ndev = NULL;
+ 	reg->features = 0;
+ 	reg->type = 0;
++
++	/*
++	 * The N2H receive path reads reg->ndev in the NAPI poll and hands it to
++	 * a callback, or holds it - "TODO: Need to ensure the ndev is not
++	 * removed before we take dev_hold()" in nss_core_handle_virt_if_pkt().
++	 * Clearing the field stops any later poll from finding it; this waits
++	 * out the poll that already read it, so the caller can free the netdev
++	 * once we return. Softirq is an RCU read-side section on the
++	 * non-preemptible kernels this builds for, which is what makes one
++	 * barrier here cover every reader instead of a hold at each one.
++	 */
++	synchronize_net();
+ }
+ 
+ /*
