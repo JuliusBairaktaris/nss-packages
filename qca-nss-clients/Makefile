@@ -147,6 +147,24 @@ the NSS firmware, making offloaded traffic visible to host capture
 tools (tcpdump). Configured via /proc/sys/dev/nss/mirror/config.
 endef
 
+define KernelPackage/qca-nss-drv-wifi-meshmgr
+  SECTION:=kernel
+  CATEGORY:=Kernel modules
+  SUBMENU:=Network Devices
+  TITLE:=NSS Wi-Fi mesh manager (802.11s mesh offload)
+  DEPENDS:=@TARGET_qualcommax \
+	   +kmod-qca-nss-drv \
+	   +@NSS_DRV_WIFI_MESH_ENABLE
+  FILES:=$(PKG_BUILD_DIR)/wifi_meshmgr/qca-nss-wifi-meshmgr.ko
+endef
+
+define KernelPackage/qca-nss-drv-wifi-meshmgr/Description
+Manages NSS firmware Wi-Fi mesh interfaces (mesh path and proxy path
+tables) for 802.11s mesh offload. No AUTOLOAD of its own: ath11k links
+against it when built with ATH11K_NSS_MESH_SUPPORT, so it loads as a
+module dependency; its init is inert until a mesh device is created.
+endef
+
 define Build/InstallDev
 	$(INSTALL_DIR) $(1)/usr/include/qca-nss-clients
 	$(CP) $(PKG_BUILD_DIR)/netlink/include/* $(1)/usr/include/qca-nss-clients/
@@ -190,6 +208,10 @@ ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-mirror),)
 NSS_CLIENTS_MAKE_OPTS+=mirror=y
 endif
 
+ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-wifi-meshmgr),)
+NSS_CLIENTS_MAKE_OPTS+=wifi-meshmgr=y
+endif
+
 EXTRA_CFLAGS+= \
 	-Wno-missing-prototypes \
 	-Wno-missing-declarations \
@@ -214,3 +236,4 @@ $(eval $(call KernelPackage,qca-nss-drv-igs))
 $(eval $(call KernelPackage,qca-nss-drv-bridge-mgr))
 $(eval $(call KernelPackage,qca-nss-drv-netlink))
 $(eval $(call KernelPackage,qca-nss-drv-mirror))
+$(eval $(call KernelPackage,qca-nss-drv-wifi-meshmgr))
