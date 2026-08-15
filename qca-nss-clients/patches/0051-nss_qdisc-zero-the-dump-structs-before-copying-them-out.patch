@@ -1,0 +1,159 @@
+nss_qdisc: zero the dump structs before copying them out
+
+Every nss_qdisc dump builds its reply in an uninitialised stack object and
+hands the whole object to userspace:
+
+	struct tc_nsstbl_qopt opt;
+
+	opt.rate = q->rate;
+	...
+	if (opts == NULL || nla_put(skb, TCA_NSSTBL_PARMS, sizeof(opt), &opt)) {
+
+Whatever the padding holds goes out with it. Seven of the uapi structs
+carry padding the dumps never write: tc_nsstbl_qopt, tc_nssprio_qopt and
+tc_nsshtb_qopt three bytes each, tc_nssfifo_qopt two, and
+tc_nsswred_qopt, tc_nsscodel_qopt and tc_nssbf_qopt one - all of it from
+a __u8 accel_mode following __u32 members. nss_wred_dump() additionally
+leaves members unassigned on the branch it does not take.
+
+This needs no privilege. `tc qdisc show` is RTM_GETQDISC, and
+rtnetlink_rcv_msg() applies its CAP_NET_ADMIN test only to kinds other
+than RTNL_KIND_GET, so any local process reads the bytes.
+
+Found by a coverage-guided ASan harness over the qdisc netlink surface,
+which reached three of them; the rest are the same shape and are fixed
+together rather than left as siblings waiting to be found separately.
+
+Zero each struct where it is declared, which is what the in-tree qdiscs
+do for the same hazard - see sch_htb.c's tc_htb_glob dump. Applied
+uniformly, including to the structs that have no padding today, because
+whether a given one leaks is a property of the field list and a member
+added later would reintroduce it silently.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+--- a/nss_qdisc/nss_bf.c
++++ b/nss_qdisc/nss_bf.c
+@@ -506,6 +506,7 @@
+ 	struct nss_bf_class_data *cl = (struct nss_bf_class_data *)arg;
+ 	struct nlattr *opts;
+ 	struct tc_nssbf_class_qopt qopt;
++	memset(&qopt, 0, sizeof(qopt));
+ 
+ 	nss_qdisc_info("Dumping class %px of Qdisc %px\n", cl, sch);
+ 
+@@ -819,6 +820,7 @@
+ 	struct nss_bf_sched_data *q = qdisc_priv(sch);
+ 	struct tc_nssbf_qopt qopt;
+ 	struct nlattr *opts = NULL;
++	memset(&qopt, 0, sizeof(qopt));
+ 
+ 	nss_qdisc_info("In bf dump qdisc\n");
+ 	qopt.defcls = q->defcls;
+--- a/nss_qdisc/nss_blackhole.c
++++ b/nss_qdisc/nss_blackhole.c
+@@ -231,6 +231,7 @@
+ 	struct nss_blackhole_sched_data *q;
+ 	struct nlattr *opts = NULL;
+ 	struct tc_nssblackhole_qopt opt;
++	memset(&opt, 0, sizeof(opt));
+ 
+ 	nss_qdisc_info("qdisc %x dumping!\n", sch->handle);
+ 
+--- a/nss_qdisc/nss_codel.c
++++ b/nss_qdisc/nss_codel.c
+@@ -529,6 +529,7 @@
+ 	struct nss_codel_sched_data *q;
+ 	struct nlattr *opts = NULL;
+ 	struct tc_nsscodel_qopt opt;
++	memset(&opt, 0, sizeof(opt));
+ 
+ 	nss_qdisc_info("NssCodel Dumping!");
+ 
+@@ -572,6 +573,9 @@
+ 	struct tc_nssfq_codel_xstats fqcst;
+ 	struct tc_nsscodel_xstats cst;
+ 
++	memset(&fqcst, 0, sizeof(fqcst));
++	memset(&cst, 0, sizeof(cst));
++
+ 	if (!q->flows) {
+ 		cst.peak_queue_delay = q->sq_stats.peak_queue_delay;
+ 		cst.peak_drop_delay = q->sq_stats.peak_drop_delay;
+--- a/nss_qdisc/nss_fifo.c
++++ b/nss_qdisc/nss_fifo.c
+@@ -299,6 +299,7 @@
+ 	struct nss_fifo_sched_data *q;
+ 	struct nlattr *opts = NULL;
+ 	struct tc_nssfifo_qopt opt;
++	memset(&opt, 0, sizeof(opt));
+ 
+ 	nss_qdisc_info("Nssfifo Dumping!");
+ 
+--- a/nss_qdisc/nss_htb.c
++++ b/nss_qdisc/nss_htb.c
+@@ -766,6 +766,7 @@
+ 	struct nss_htb_class_data *cl = (struct nss_htb_class_data *)arg;
+ 	struct nlattr *opts;
+ 	struct tc_nsshtb_class_qopt qopt;
++	memset(&qopt, 0, sizeof(qopt));
+ 
+ 	nss_qdisc_trace("dumping htb class %x of qdisc %x\n", cl->nq.qos_tag, sch->handle);
+ 
+@@ -1086,6 +1087,7 @@
+ 	struct nss_htb_sched_data *q = qdisc_priv(sch);
+ 	struct nlattr *opts = NULL;
+ 	struct tc_nsshtb_qopt qopt;
++	memset(&qopt, 0, sizeof(qopt));
+ 
+ 	nss_qdisc_trace("dumping htb qdisc %x\n", sch->handle);
+ 
+--- a/nss_qdisc/nss_prio.c
++++ b/nss_qdisc/nss_prio.c
+@@ -291,6 +291,7 @@
+ 	struct nss_prio_sched_data *q = qdisc_priv(sch);
+ 	struct nlattr *opts = NULL;
+ 	struct tc_nssprio_qopt qopt;
++	memset(&qopt, 0, sizeof(qopt));
+ 
+ 	nss_qdisc_info("Nssprio dumping");
+ 	qopt.bands = q->bands;
+--- a/nss_qdisc/nss_tbl.c
++++ b/nss_qdisc/nss_tbl.c
+@@ -295,6 +295,7 @@
+ 	struct nss_tbl_sched_data *q = qdisc_priv(sch);
+ 	struct nlattr *opts = NULL;
+ 	struct tc_nsstbl_qopt opt;
++	memset(&opt, 0, sizeof(opt));
+ 
+ 	opt.rate = q->rate;
+ 	opt.peakrate = q->peakrate;
+--- a/nss_qdisc/nss_wred.c
++++ b/nss_qdisc/nss_wred.c
+@@ -392,6 +392,8 @@
+ 	struct nlattr *opts = NULL;
+ 	struct tc_nsswred_qopt opt;
+ 	int i;
++
++	memset(&opt, 0, sizeof(opt));
+ 	nss_qdisc_info("Nsswred Dumping!");
+ 
+ 	q = qdisc_priv(sch);
+--- a/nss_qdisc/nss_wrr.c
++++ b/nss_qdisc/nss_wrr.c
+@@ -594,6 +594,7 @@
+ 	struct nss_wrr_class_data *cl = (struct nss_wrr_class_data *)arg;
+ 	struct nlattr *opts;
+ 	struct tc_nsswrr_class_qopt qopt;
++	memset(&qopt, 0, sizeof(qopt));
+ 
+ 	nss_qdisc_info("Dumping class %px of Qdisc %x\n", cl, sch->handle);
+ 
+@@ -858,6 +859,7 @@
+ 	struct nss_wrr_sched_data *q;
+ 	struct nlattr *opts = NULL;
+ 	struct tc_nsswrr_qopt opt;
++	memset(&opt, 0, sizeof(opt));
+ 
+ 	nss_qdisc_info("Nsswrr Dumping!");
+ 
