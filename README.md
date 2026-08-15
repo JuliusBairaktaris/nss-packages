@@ -20,9 +20,10 @@ in the wiki.
 
 This feed is the **CodeLinaro QSDK `nss-host`** sources, packaged to build
 standalone against OpenWrt main. The driver stack (`qca-nss-drv`, `qca-mcs`,
-`qca-nss-ecm`) tracks the tip of the **`NHSS.QSDK.14.0.r8`** release — the line
+`qca-nss-ecm`) tracks the tip of the **`NHSS.QSDK.14.0.r9`** release — the line
 Qualcomm actively develops and tests as one set, and the newest that still
-carries IPQ807x support.
+carries IPQ807x support. `qca-nss-drv` and `qca-mcs` are unchanged across r8→r9
+(the tag heads are the same commit); only `qca-nss-ecm` advanced.
 
 The packaging conversion (pinned upstream sources instead of QSDK's
 `local-development.mk`), the 5.15 → 6.12 kernel-compatibility patch queues, and
@@ -47,7 +48,7 @@ mesh interfaces at the firmware level. On 11.4 the shaper statistics wire
 format differs; the NSS qdisc module selects it at build time, and SQM
 runs unchanged with the same `nss-edma.qos` script.
 
-The `14.0.r8` drivers and the `12.5-210` firmware share the same wire ABI — the
+The `14.0.r9` drivers and the `12.5-210` firmware share the same wire ABI — the
 same combination the community NSS builds run — and the pairing is verified at
 runtime, not assumed. `qca-nss-clients` has no `14.0` line and stays at the tip
 of its last release, `NHSS.QSDK.12.5.5`.
@@ -56,9 +57,9 @@ of its last release, `NHSS.QSDK.12.5.5`.
 
 | Package | Source | Pin | Notes |
 |---|---|---|---|
-| `qca-nss-drv` | [lklm/nss-drv](https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-drv) | `d7ef98b1d3d3` | Tip of `NHSS.QSDK.14.0.r8`. `exports/` ABI to the EDMA glue is stable; proven against firmware 12.5-210. |
-| `qca-mcs` | [lklm/qca-mcs](https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-mcs) | `063a4679ed22` | Tip of `NHSS.QSDK.14.0.r8`. IGMP/MLD snooping for multicast offload. |
-| `qca-nss-ecm` | [lklm/qca-nss-ecm](https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-nss-ecm) | `b6af8ffbd52b` | Tip of `NHSS.QSDK.14.0.r8`. NSS front-end; SFE/PPE/SDX front-ends compiled out. |
+| `qca-nss-drv` | [lklm/nss-drv](https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-drv) | `d7ef98b1d3d3` | Tip of `NHSS.QSDK.14.0.r9` (same commit as r8). `exports/` ABI to the EDMA glue is stable; proven against firmware 12.5-210. |
+| `qca-mcs` | [lklm/qca-mcs](https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-mcs) | `063a4679ed22` | Tip of `NHSS.QSDK.14.0.r9` (same commit as r8). IGMP/MLD snooping for multicast offload. |
+| `qca-nss-ecm` | [lklm/qca-nss-ecm](https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-nss-ecm) | `e978478f5dba` | Tip of `NHSS.QSDK.14.0.r9`. NSS front-end; SFE/PPE/SDX front-ends compiled out. |
 | `qca-nss-clients` | [lklm/nss-clients](https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-clients) | `51be82d` | Tip of `NHSS.QSDK.12.5.5` — the newest clients commit on any maintained branch; no 14.0 line exists. |
 | `nss-firmware` | [qosmio/qca-sdk-nss-fw](https://github.com/qosmio/qca-sdk-nss-fw) | 12.5 Release 210 | `NSS.FW.12.5-210-HK.R`; the firmware the driver source pins against. |
 | `sqm-scripts-nss` | local `files/` | — | NSS shaper integration; ships one queue-setup script, `nss-edma.qos`. |

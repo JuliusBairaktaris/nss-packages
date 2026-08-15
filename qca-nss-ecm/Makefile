@@ -1,18 +1,21 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=qca-nss-ecm
-PKG_RELEASE:=9
+PKG_RELEASE:=1
 
-# Source: https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-nss-ecm.git @ b6af8ffbd52b0dedc68f3fb4c04a714d1df77b96 (pre-generated 'git archive' of the commit).
+# Source: https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-nss-ecm.git @ e978478f5dba749d412e144b8f3e7b152687d893
+# (tag NHSS.QSDK.14.0.r9-00025-O, the newest QSDK tag; pre-generated 'git archive' of the commit).
+# ECM is the only one of the three that moved between r8 and r9; every r9 tag
+# from r9-00007-O onward resolves to this commit.
 # Fetched from our release mirror so the download is deterministic and hash-verified;
 # git-proto regenerates the zstd archive locally and its hash varies by toolchain.
-PKG_SOURCE_DATE:=2026-06-24
-PKG_SOURCE_VERSION:=b6af8ffbd52b0dedc68f3fb4c04a714d1df77b96
+PKG_SOURCE_DATE:=2026-07-10
+PKG_SOURCE_VERSION:=e978478f5dba749d412e144b8f3e7b152687d893
 QSDK_VERSION:=14.0
 PKG_VERSION:=$(QSDK_VERSION).$(subst -,.,$(PKG_SOURCE_DATE))~$(PKG_SOURCE_VERSION)
 PKG_SOURCE:=$(PKG_NAME)-$(subst ~,.,$(PKG_VERSION)).tar.zst
 PKG_SOURCE_URL:=https://github.com/JuliusBairaktaris/nss-packages/releases/download/nss-source-tarballs
-PKG_HASH:=fb84fb0f04634d87161c2d4ca4e72fb4454ce8ba1c1bbc28818584224ad3a663
+PKG_HASH:=31539421a42aea1a6d5bdc806754414e9518a6d6e1d4870174345064ca03ba64
 
 PKG_BUILD_PARALLEL:=1
 PKG_FLAGS:=nonshared
@@ -22,18 +25,12 @@ PKG_CONFIG_DEPENDS:= \
 	CONFIG_NSS_DRV_PPPOE_ENABLE \
 	CONFIG_NSS_FIRMWARE_VERSION_11_4 \
 	CONFIG_NSS_FIRMWARE_VERSION_12_5 \
-	CONFIG_PACKAGE_kmod-gre \
-	CONFIG_PACKAGE_kmod-gre6 \
-	CONFIG_PACKAGE_kmod-ip6-tunnel \
 	CONFIG_PACKAGE_kmod-ipsec \
-	CONFIG_PACKAGE_kmod-macvlan \
 	CONFIG_PACKAGE_kmod-nat46 \
 	CONFIG_PACKAGE_kmod-pppoe \
 	CONFIG_PACKAGE_kmod-qca-mcs \
 	CONFIG_PACKAGE_kmod-qca-nss-drv \
-	CONFIG_PACKAGE_kmod-qca-nss-drv-igs \
-	CONFIG_PACKAGE_kmod-sit \
-	CONFIG_PACKAGE_kmod-vxlan
+	CONFIG_PACKAGE_kmod-qca-nss-drv-igs
 
 include $(INCLUDE_DIR)/kernel.mk
 include $(INCLUDE_DIR)/package.mk
@@ -50,7 +47,6 @@ define KernelPackage/qca-nss-ecm
 		   +@(TARGET_qualcommax||TARGET_ipq806x):NSS_DRV_PPPOE_ENABLE \
 		   +PACKAGE_kmod-qca-nss-drv:kmod-qca-nss-drv \
 		   +PACKAGE_kmod-qca-mcs:kmod-qca-mcs \
-		   +PACKAGE_kmod-vxlan:kmod-vxlan \
 		   +PACKAGE_kmod-nat46:kmod-nat46 \
 		   +kmod-ppp \
 		   +kmod-pppoe
@@ -70,22 +66,15 @@ define KernelPackage/qca-nss-ecm/conffiles
 endef
 
 define KernelPackage/qca-nss-ecm/install
-	$(INSTALL_DIR) $(1)/etc/firewall.d $(1)/etc/init.d $(1)/usr/bin $(1)/lib/netifd/offload $(1)/etc/config $(1)/etc/uci-defaults $(1)/etc/sysctl.d $(1)/etc/hotplug.d/net
-	$(INSTALL_DATA) ./files/qca-nss-ecm.firewall $(1)/etc/firewall.d/qca-nss-ecm
+	$(INSTALL_DIR) $(1)/etc/init.d $(1)/usr/bin $(1)/lib/netifd/offload $(1)/etc/config $(1)/etc/uci-defaults $(1)/etc/hotplug.d/net
 	$(INSTALL_BIN) ./files/qca-nss-ecm.init $(1)/etc/init.d/qca-nss-ecm
 	$(INSTALL_BIN) ./files/ecm_dump.sh $(1)/usr/bin/
 	$(INSTALL_DATA) ./files/disable_offloads.sh $(1)/lib/netifd/offload
 	$(INSTALL_DATA) ./files/on-demand-down $(1)/lib/netifd/offload/on-demand-down
 	$(INSTALL_DATA) ./files/qca-nss-ecm.uci $(1)/etc/config/ecm
 	$(INSTALL_DATA) ./files/qca-nss-ecm.defaults $(1)/etc/uci-defaults/99-qca-nss-ecm
-	$(INSTALL_DATA) ./files/qca-nss-ecm.sysctl $(1)/etc/sysctl.d/qca-nss-ecm.conf
 	$(INSTALL_DATA) ./files/disable_offloads.hotplug $(1)/etc/hotplug.d/net/99-disable_offloads
 endef
-
-# Vendor code is not warning-clean; keep warnings non-fatal. The accumulated
-# EXTRA_CFLAGS are handed to kbuild via NOSTDINC_FLAGS: kbuild dropped
-# EXTRA_CFLAGS support in kernel 6.15.
-EXTRA_CFLAGS+= -Wno-error
 
 EXTRA_CFLAGS+= \
 		 -I$(STAGING_DIR)/usr/include/qca-nss-drv \
@@ -118,24 +107,6 @@ ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-igs),)
 ECM_MAKE_OPTS+=ECM_CLASSIFIER_DSCP_IGS=y
 endif
 
-ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-ovpn-link),)
-ECM_MAKE_OPTS+=ECM_INTERFACE_OVPN_ENABLE=y
-endif
-
-ifeq ($(CONFIG_PACKAGE_kmod-vxlan),y)
-ECM_MAKE_OPTS+=ECM_INTERFACE_VXLAN_ENABLE=y
-endif
-
-ifneq ($(CONFIG_PACKAGE_kmod-qca-ovsmgr),)
-ECM_MAKE_OPTS+=ECM_INTERFACE_OVS_BRIDGE_ENABLE=y \
-			   ECM_CLASSIFIER_OVS_ENABLE=y
-EXTRA_CFLAGS+= -I$(STAGING_DIR)/usr/include/qca-ovsmgr
-endif
-
-ifneq ($(CONFIG_PACKAGE_kmod-macvlan),)
-ECM_MAKE_OPTS+=ECM_INTERFACE_MACVLAN_ENABLE=y
-endif
-
 ifneq ($(CONFIG_PACKAGE_kmod-qca-mcs),)
 ECM_MAKE_OPTS+=ECM_MULTICAST_ENABLE=y
 endif
@@ -162,31 +133,23 @@ endif
 ECM_MAKE_OPTS+=ECM_INTERFACE_PPTP_ENABLE=n \
 			   ECM_INTERFACE_L2TPV2_ENABLE=n
 
-ifneq ($(CONFIG_PACKAGE_kmod-gre)$(CONFIG_PACKAGE_kmod-gre6),)
-ECM_MAKE_OPTS+=ECM_INTERFACE_GRE_TAP_ENABLE=y \
-			   ECM_INTERFACE_GRE_TUN_ENABLE=y
-endif
+# GRE offload is not supported on this tree - never validated here, so it is
+# forced off rather than switched on by whichever kmods happen to be selected.
+ECM_MAKE_OPTS+=ECM_INTERFACE_GRE_TAP_ENABLE=n \
+			   ECM_INTERFACE_GRE_TUN_ENABLE=n
 
-ifneq ($(CONFIG_PACKAGE_kmod-sit),)
-ECM_MAKE_OPTS+=ECM_INTERFACE_SIT_ENABLE=y
-endif
-
-ifneq ($(CONFIG_PACKAGE_kmod-ip6-tunnel),)
-ECM_MAKE_OPTS+=ECM_INTERFACE_TUNIPIP6_ENABLE=y
-endif
-
-ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-mscs),)
-ECM_MAKE_OPTS+=ECM_CLASSIFIER_MSCS_ENABLE=y
-endif
+# 6RD/SIT and IPIP6 offload are not supported on this tree: nothing here has
+# been validated against them, and an interface type that is enabled but never
+# exercised is worse than one that is off - it changes how ECM classifies
+# flows without anyone having checked the result. Forced off regardless of
+# kmod-sit / kmod-ip6-tunnel, the same way bonding is below.
+ECM_MAKE_OPTS+=ECM_INTERFACE_SIT_ENABLE=n \
+			   ECM_INTERFACE_TUNIPIP6_ENABLE=n
 
 # The EDMA-rework kernel does not carry the QCA bonding hooks
 # (bond_get_tx_dev), so LAG offload must stay off regardless of
 # kmod-bonding.
 ECM_MAKE_OPTS+=ECM_INTERFACE_BOND_ENABLE=n
-
-ifneq ($(CONFIG_PACKAGE_kmod-qmi_wwan_q),)
-ECM_MAKE_OPTS+=ECM_INTERFACE_RAWIP_ENABLE=y
-endif
 
 ifneq ($(CONFIG_NSS_FIRMWARE_VERSION_12_5),)
 EXTRA_CFLAGS+=-DNSS_FIRMWARE_VERSION_12_5
