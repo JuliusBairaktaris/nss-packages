@@ -1,0 +1,72 @@
+From: Julius Bairaktaris <julius@bairaktaris.de>
+Subject: [PATCH] igs: arm the synchronous message wait before ringing the doorbell
+
+nss_ifb_config_msg_tx_sync() sends the IFB config message and only then sets
+the condition it is about to wait on. nss_if_tx_msg() rings the NSS doorbell,
+so the firmware is already executing, and its ACK is processed by
+nss_ifb_wake_up_cb() from the N2H softirq. An ACK that lands between the send
+and the store finds an empty wait queue; the store then re-arms a condition
+that nothing will ever clear again, and the caller sleeps out the full timeout.
+
+That timeout is NSS_IFB_MSG_TIMEOUT, which is 600*HZ - ten minutes, not the one
+minute its comment claims - and the sleep is uninterruptible. The only caller is
+nss_mirred_init(), which sends two of these per redirect, and tc installs a u32
+classifier under rtnl_lock (only cls_flower carries TCF_PROTO_OPS_DOIT_UNLOCKED),
+so a single missed ACK stalls every netlink operation on the box for ten
+minutes with no kernel output at all, and there are two chances per redirect.
+
+Arm the condition before the send. Bring the timeout down to ten seconds to
+match the sibling qdisc path: firmware turnaround is microseconds, and a
+ten-minute uninterruptible hold of rtnl_lock is not a timeout, it is an outage.
+
+This does not make the shared response slot safe against a late ACK crossing
+into the next caller's wait: nss_ifb_wake_up_cb() carries no message identity,
+so an ACK that arrives after its sender gave up clears whoever is waiting now
+and stamps that caller with someone else's verdict. Clearing the condition on
+the way out would not help - every caller re-arms it under the semaphore before
+waiting, so the value left behind is never read. That hazard is older than this
+change and needs a message identity to close; it is also gated behind an ACK
+arriving more than ten seconds late, which has never been observed on hardware.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+---
+--- a/nss_qdisc/igs/nss_ifb.h
++++ b/nss_qdisc/igs/nss_ifb.h
+@@ -14,7 +14,7 @@
+  **************************************************************************
+  */
+ 
+-#define NSS_IFB_MSG_TIMEOUT (600*HZ)	/* 1 min timeout */
++#define NSS_IFB_MSG_TIMEOUT (10*HZ)	/* firmware turnaround is microseconds */
+ 
+ /*
+  * nss_ifb_if_config
+--- a/nss_qdisc/igs/nss_ifb.c
++++ b/nss_qdisc/igs/nss_ifb.c
+@@ -286,15 +286,25 @@
+ 	}
+ 
+ 	down(&msg_response.sem);
++
++	/*
++	 * Arm the wait before ringing the doorbell, not after: nss_if_tx_msg()
++	 * hands the message to a firmware that answers in microseconds, and the
++	 * ACK callback runs from the N2H softirq. An ACK landing between the two
++	 * finds an empty wait queue, and the store below would then re-arm a
++	 * condition nothing will ever clear again - an uninterruptible sleep for
++	 * the whole timeout with rtnl_lock held, since this is only ever reached from
++	 * act_nssmirred's init under the classifier's RTNL section.
++	 */
++	msg_response.cond = 1;
+ 	ret = nss_if_tx_msg(nss_igs_get_context(), &nim);
+ 	if (ret != NSS_TX_SUCCESS) {
+ 		up(&msg_response.sem);
+ 		nss_igs_error("failed to send config message\n");
+ 		return -1;
+ 	}
+ 
+-	msg_response.cond = 1;
+ 	if (!wait_event_timeout(msg_response.wq, msg_response.cond == 0, NSS_IFB_MSG_TIMEOUT)) {
+ 		nss_igs_error("config for attach interface msg timeout\n");
+ 		up(&msg_response.sem);
+ 		return -1;
