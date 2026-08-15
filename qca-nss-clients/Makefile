@@ -19,7 +19,8 @@ PKG_BUILD_PARALLEL:=1
 PKG_CONFIG_DEPENDS:=\
 	CONFIG_NSS_DRV_IGS_ENABLE \
 	CONFIG_NSS_DRV_PPPOE_ENABLE \
-	CONFIG_NSS_DRV_SHAPER_ENABLE
+	CONFIG_NSS_DRV_SHAPER_ENABLE \
+	CONFIG_NSS_FIRMWARE_VERSION_11_4
 
 include $(INCLUDE_DIR)/kernel.mk
 include $(INCLUDE_DIR)/package.mk
@@ -210,6 +211,12 @@ endif
 
 ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-wifi-meshmgr),)
 NSS_CLIENTS_MAKE_OPTS+=wifi-meshmgr=y
+endif
+
+# The 11.4 firmware line uses the per-node shaper statistics wire format
+# (see the nss_qdisc 11.4 stats patch); select it to match the firmware.
+ifdef CONFIG_NSS_FIRMWARE_VERSION_11_4
+EXTRA_CFLAGS+=-DNSS_FIRMWARE_VERSION_11_4
 endif
 
 EXTRA_CFLAGS+= \
