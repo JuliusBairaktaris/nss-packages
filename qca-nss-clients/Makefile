@@ -108,6 +108,51 @@ bridge's qca_ppe member ports to a firmware bridge interface. No AUTOLOAD:
 loaded at runtime after the NSS data plane is up (see nss-up).
 endef
 
+define KernelPackage/qca-nss-drv-netlink
+  SECTION:=kernel
+  CATEGORY:=Kernel modules
+  SUBMENU:=Network Devices
+  TITLE:=NSS netlink manager (userspace control and stats interface)
+  DEPENDS:=@TARGET_qualcommax \
+	   +kmod-qca-nss-drv \
+	   +@NSS_DRV_IPV6_ENABLE \
+	   +@NSS_DRV_WIFIOFFLOAD_ENABLE
+  FILES:=$(PKG_BUILD_DIR)/netlink/qca-nss-netlink.ko
+endef
+
+define KernelPackage/qca-nss-drv-netlink/Description
+Generic-netlink families exposing NSS firmware state (per-interface and
+per-subsystem statistics, dynamic interfaces, rule injection) to
+userspace tools such as nssinfo.
+endef
+
+define KernelPackage/qca-nss-drv-netlink/config
+	source "$(SOURCE)/Config.in"
+endef
+
+define KernelPackage/qca-nss-drv-mirror
+  SECTION:=kernel
+  CATEGORY:=Kernel modules
+  SUBMENU:=Network Devices
+  TITLE:=NSS interface mirroring (copies firmware-path packets to a host netdev for capture)
+  DEPENDS:=@TARGET_qualcommax \
+	   +kmod-qca-nss-drv \
+	   +@NSS_DRV_MIRROR_ENABLE
+  FILES:=$(PKG_BUILD_DIR)/mirror/qca-nss-mirror.ko
+endef
+
+define KernelPackage/qca-nss-drv-mirror/Description
+Creates mirror netdevs that receive copies of packets flowing through
+the NSS firmware, making offloaded traffic visible to host capture
+tools (tcpdump). Configured via /proc/sys/dev/nss/mirror/config.
+endef
+
+define Build/InstallDev
+	$(INSTALL_DIR) $(1)/usr/include/qca-nss-clients
+	$(CP) $(PKG_BUILD_DIR)/netlink/include/* $(1)/usr/include/qca-nss-clients/
+	$(CP) $(PKG_BUILD_DIR)/exports/* $(1)/usr/include/qca-nss-clients/
+endef
+
 # Vendor code is not warning-clean; keep warnings non-fatal. The accumulated
 # EXTRA_CFLAGS are handed to kbuild via NOSTDINC_FLAGS: kbuild dropped
 # EXTRA_CFLAGS support in kernel 6.15.
@@ -137,6 +182,14 @@ ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-bridge-mgr),)
 NSS_CLIENTS_MAKE_OPTS+=bridge-mgr=y
 endif
 
+ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-netlink),)
+NSS_CLIENTS_MAKE_OPTS+=netlink=y
+endif
+
+ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-mirror),)
+NSS_CLIENTS_MAKE_OPTS+=mirror=y
+endif
+
 EXTRA_CFLAGS+= \
 	-Wno-missing-prototypes \
 	-Wno-missing-declarations \
@@ -159,3 +212,5 @@ $(eval $(call KernelPackage,qca-nss-drv-pppoe))
 $(eval $(call KernelPackage,qca-nss-drv-qdisc))
 $(eval $(call KernelPackage,qca-nss-drv-igs))
 $(eval $(call KernelPackage,qca-nss-drv-bridge-mgr))
+$(eval $(call KernelPackage,qca-nss-drv-netlink))
+$(eval $(call KernelPackage,qca-nss-drv-mirror))
