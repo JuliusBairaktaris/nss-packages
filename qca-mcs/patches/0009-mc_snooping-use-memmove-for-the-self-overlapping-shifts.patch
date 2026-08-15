@@ -1,0 +1,115 @@
+From: Julius Bairaktaris <julius@bairaktaris.de>
+Subject: [PATCH] mc_snooping: use memmove for the self-overlapping shifts
+
+Ten memcpy() calls shift an array left over itself, which the kernel's
+memcpy contract does not allow: the source and destination overlap and
+the destination is lower, so the result is only defined for memmove().
+
+Six delete one element from a source list by pulling the tail down one
+slot - mc_ipv6_sub_source(), mc_ipv6_mix_source(), mc_ipv4_sub_source(),
+mc_ipv4_mix_source() and both source_list_filter() siblings. Four delete
+a group record or a filtered source range inside the skb itself, in
+mc_ipv4_igmp3_report() and mc_ipv6_mld2_report(), copying the remainder
+of the report down over the hole.
+
+This is currently benign on this SoC, which is why it is a correctness
+fix and not a security one: arm64's memcpy aliases __pi_memmove and
+copies overlapping regions correctly. It is a real defect anywhere that
+is not true, and nothing in the code marks the dependency.
+
+The report that found this listed mc_ipv4_source_list_filter() and not
+its IPv6 sibling. Both are here: the sibling is the same shift over
+struct in6_addr, and this tree does not change one of a v4/v6 pair.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+Index: qca-mcs-14.0.2026.04.29~063a4679ed22b1610925d3809397ff82308d4d00/mc_snooping.c
+===================================================================
+--- qca-mcs-14.0.2026.04.29~063a4679ed22b1610925d3809397ff82308d4d00.orig/mc_snooping.c
++++ qca-mcs-14.0.2026.04.29~063a4679ed22b1610925d3809397ff82308d4d00/mc_snooping.c
+@@ -1034,7 +1034,7 @@ static int mc_ipv6_sub_source(struct in6
+ 		}
+ 		if (m != a_cnt) {
+ 			if (m < a_cnt - 1)
+-				memcpy(&a[m], &a[m + 1], sizeof(*a) * (a_cnt - 1 - m));
++				memmove(&a[m], &a[m + 1], sizeof(*a) * (a_cnt - 1 - m));
+ 			a_cnt--;
+ 		}
+ 		n++;
+@@ -1060,7 +1060,7 @@ static int mc_ipv6_mix_source(struct in6
+ 		}
+ 		if (m == b_cnt) {
+ 			if (n < (a_cnt - 1))
+-				memcpy(&a[n], &a[n + 1], sizeof(*a) * (a_cnt - n - 1));
++				memmove(&a[n], &a[n + 1], sizeof(*a) * (a_cnt - n - 1));
+ 			a_cnt--;
+ 			continue;
+ 		}
+@@ -1134,7 +1134,7 @@ static int mc_ipv4_sub_source(__be32 *a,
+ 		}
+ 		if (m != a_cnt) {
+ 			if (m < a_cnt - 1)
+-				memcpy(&a[m], &a[m + 1], sizeof(__be32) * (a_cnt - 1 - m));
++				memmove(&a[m], &a[m + 1], sizeof(__be32) * (a_cnt - 1 - m));
+ 			a_cnt--;
+ 		}
+ 		n++;
+@@ -1160,7 +1160,7 @@ static int mc_ipv4_mix_source(__be32 *a,
+ 
+ 		if (m == b_cnt) {
+ 			if (n < (a_cnt - 1))
+-				memcpy(&a[n], &a[n + 1], sizeof(__be32) * (a_cnt - n - 1));
++				memmove(&a[n], &a[n + 1], sizeof(__be32) * (a_cnt - n - 1));
+ 			a_cnt--;
+ 			continue;
+ 		}
+@@ -1498,7 +1498,7 @@ static int mc_ipv4_source_list_filter(st
+ 			os_hlist_for_each_entry_rcu(fg, fgh, &pg->fslist, fslist) {
+ 				if (mc_ipv4_filter_source(fg, srcs[m])) {
+ 					if (m < grec_nsrcs - 1)
+-						memcpy(&srcs[m], &srcs[m+1], sizeof(__be32) * (grec_nsrcs - 1 - m));
++						memmove(&srcs[m], &srcs[m+1], sizeof(__be32) * (grec_nsrcs - 1 - m));
+ 					grec_nsrcs--;
+ 					loop_done = 1;
+ 					break;
+@@ -1738,13 +1738,13 @@ static int mc_ipv4_igmp3_report(struct m
+ 			return -EINVAL;
+ 
+ 		if (filter_num == ~0 || !grec->grec_nsrcs) { /* Del whole grec */
+-			memcpy(skb->data + prev_offset, skb->data + len, tlen - len);
++			memmove(skb->data + prev_offset, skb->data + len, tlen - len);
+ 			tlen -= len - prev_offset;
+ 			len = prev_offset;
+ 			ngroup--;
+ 		} else { /* Del sources in grec */
+ 			filter_num *= sizeof(__be32);
+-			memcpy(skb->data + len - filter_num, skb->data + len, tlen - len);
++			memmove(skb->data + len - filter_num, skb->data + len, tlen - len);
+ 			tlen -= filter_num;
+ 			len = len - filter_num;
+ 		}
+@@ -1827,7 +1827,7 @@ static int mc_ipv6_source_list_filter(st
+ 			os_hlist_for_each_entry_rcu(fg, fgh, &pg->fslist, fslist) {
+ 				if (mc_ipv6_filter_source(fg, &srcs[m])) {
+ 					if (m < grec_nsrcs - 1)
+-						memcpy(&srcs[m], &srcs[m+1], sizeof(struct in6_addr) * (grec_nsrcs - 1 - m));
++						memmove(&srcs[m], &srcs[m+1], sizeof(struct in6_addr) * (grec_nsrcs - 1 - m));
+ 					grec_nsrcs--;
+ 					loop_done = 1;
+ 					break;
+@@ -2038,13 +2038,13 @@ static int mc_ipv6_mld2_report(struct mc
+ 			return -EINVAL;
+ 
+ 		if (filter_num == ~0 || !grec->grec_nsrcs) { /* Del whole grec */
+-			memcpy(skb->data + prev_offset, skb->data + len, tlen - len);
++			memmove(skb->data + prev_offset, skb->data + len, tlen - len);
+ 			tlen -= len - prev_offset;
+ 			len = prev_offset;
+ 			ngroup--;
+ 		} else { /* Del sources in grec */
+ 			filter_num *= sizeof(struct in6_addr);
+-			memcpy(skb->data + len - filter_num, skb->data + len, tlen - len);
++			memmove(skb->data + len - filter_num, skb->data + len, tlen - len);
+ 			tlen -= filter_num;
+ 			len = len - filter_num;
+ 		}
