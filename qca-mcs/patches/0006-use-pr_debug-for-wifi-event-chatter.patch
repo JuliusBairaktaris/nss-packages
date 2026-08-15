@@ -1,4 +1,18 @@
-use-pr_debug-for-wifi-event-chatter
+mcs: demote the wifi-event chatter to pr_debug
+
+mc_wifi_events.c logs at the default level from the netlink receive
+loop, so every event the module is told about - and the ones it
+decides not to act on, such as a STA leaving an interface with no
+master - prints a line unconditionally. mc_wifi_events.o is in the
+vendor object list with no config gate, so this is on in every build.
+
+This is not a cosmetic preference. The kernel ring is the primary
+forensic surface on this device: it is what ramoops captures across a
+warm reset and what every post-incident readout reads back. Filling it
+from a per-message path costs the history that matters.
+
+Demote those to pr_debug so they stay reachable through dynamic debug
+without displacing anything.
 
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
