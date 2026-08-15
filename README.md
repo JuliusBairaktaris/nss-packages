@@ -153,14 +153,42 @@ Re-arming the firmware after a driver reload can panic with `NSS FW coredump:
 bringing system down`. Consequence: a lightweight firmware reload cannot be used
 to reset the offload plane in place — only a full reboot does.
 
+Why it is still open: the firmware's own trap fingerprint is the evidence that
+would answer it, and both routes to it are currently closed. Forcing a coredump
+through `/proc/sys/dev/nss/general/coredump` needs `nss_ctl_debug != 0`, but the
+`debug` node is compiled out — drv's `Makefile` sets `-DNSS_FW_DBG_SUPPORT=1`
+only for kernel 3.4. Reaching the real repro means unloading the driver, and
+`rmmod ath11k` while NSS wifili is registered hangs the SoC before the re-arm
+step, leaving nothing in pstore (a hang collected by the watchdog writes no
+record, unlike a panic). The next attempt should load ath11k with
+`nss_offload=0` so there is no wifili registration to tear down, isolating the
+re-arm from that separate hazard.
+
 ### Out-of-memory on a carrier-down with a high-rate accelerated flow
 
 If a LAN port goes carrier-down while a near-line-rate accelerated flow is
 egressing it, the flow decelerates to the host slow path and the Linux bridge
-floods the packets (unknown-unicast, once the FDB entry ages out) faster than
-the remaining ports drain them, exhausting memory and rebooting the router.
-Distinct from the silent egress-wedge — this one crashes/reboots. Fix direction:
-back-pressure or drop for a down bridge port.
+floods the packets as unknown-unicast faster than the remaining ports drain
+them, exhausting memory and rebooting the router. Distinct from the silent
+egress-wedge — this one crashes/reboots.
+
+Two earlier readings of this were wrong and are worth stating so nobody chases
+them. The FDB entry is not aged out: `br_port_carrier_check()` ->
+`br_stp_disable_port()` -> `br_fdb_delete_by_port()` flushes that port's entries
+immediately, so the destination is unknown from the first frame. And "drop for a
+down bridge port" is already what Linux does — `should_deliver()` requires
+`BR_STATE_FORWARDING`, so nothing is queued for the down port at all. ECM does
+tear the flow down (`NETDEV_CHANGE` with `!netif_carrier_ok()` calls
+`ecm_interface_dev_defunct_connections()`), so this is not a race with ECM
+catching up: the deceleration is what starts the host path, and the far end keeps
+sending at line rate into a destination that no longer exists. The flood is a
+steady state, not a burst.
+
+What the next reproduction has to capture, before anything is written: whether
+the growth is a qdisc backlog (`tc -s qdisc`, and whether it reproduces with SQM
+off) or unaccounted skb allocation (`skbuff_head_cache` /
+`skbuff_small_head_cache` in `/proc/slabinfo`). Those point at different code and
+only one of them is ours.
 
 ## Acknowledgements
 
