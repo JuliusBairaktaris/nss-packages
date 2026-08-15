@@ -1,0 +1,105 @@
+From: Julius Bairaktaris <julius@bairaktaris.de>
+Subject: [PATCH] nssinfo: bound the dynamic-interface destroy notification
+
+nssinfo_dynamic_interface_destroy_notify() indexes
+nodes[core_id][if_num] with two values taken straight out of a netlink
+notification and no bound on either, then makes an indirect call through
+nssinfo_subsystem_array[node->subsystem_id].destroy - a function pointer
+read from wherever that index landed. nssinfo runs as root.
+
+The tool already has the check: nssinfo_coreid_ifnum_valid() sits in
+nssinfo.h validating exactly these two, and nothing calls it.
+
+There is a third hole in the same expression, and it is one we made.
+0030 keeps nssinfo running when a subsystem is not available, so the
+destroy slot of any subsystem this build left out stays NULL; the call
+is unconditional. nssinfo_deinit() reaches the same line and iterates
+in-bounds, so its indices are fine, but its indirect call has the same
+NULL.
+
+Fold all three into one nssinfo_node_destroy() and route both call sites
+through it: bound the indices with the existing helper, bound
+subsystem_id against NSS_NLCMN_SUBSYS_MAX - it is a plain int, so the
+negative side needs saying too - and skip a subsystem that has no
+destroy.
+
+The delivery path for the unbounded if_num is already closed at the
+other end by drv 0113, which rejects an out-of-range interface before
+nss_dynamic_interface_stats_notify() sends it. core_id was never bounded
+anywhere, and any future notification producer re-opens both.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+Index: nss-userspace-oss-13.0.2024.11.27~7233e22/nssinfo/src/nssinfo.c
+===================================================================
+--- nss-userspace-oss-13.0.2024.11.27~7233e22.orig/nssinfo/src/nssinfo.c
++++ nss-userspace-oss-13.0.2024.11.27~7233e22/nssinfo/src/nssinfo.c
+@@ -632,7 +632,7 @@ static void nssinfo_deinit(struct nss_nl
+ 			node = nodes[core][i];
+ 			if (node) {
+ 				assert(node->subsystem_id != NSS_NLCMN_SUBSYS_DYNAMIC_INTERFACE);
+-				nssinfo_subsystem_array[node->subsystem_id].destroy(core, i);
++				nssinfo_node_destroy(core, i);
+ 			}
+ 		}
+ 	}
+Index: nss-userspace-oss-13.0.2024.11.27~7233e22/nssinfo/src/nssinfo.h
+===================================================================
+--- nss-userspace-oss-13.0.2024.11.27~7233e22.orig/nssinfo/src/nssinfo.h
++++ nss-userspace-oss-13.0.2024.11.27~7233e22/nssinfo/src/nssinfo.h
+@@ -183,6 +183,36 @@ static inline bool nssinfo_coreid_ifnum_
+ }
+ 
+ /**
++ * @brief destroy the node at core_id/if_num, if there is one to destroy
++ *
++ * Validates both indices and the subsystem id before the indirect call.
++ * core_id and if_num can arrive from a netlink notification, and destroy
++ * is NULL for any subsystem this build left out.
++ *
++ * @param core_id[IN] core the node belongs to
++ * @param if_num[IN] interface number of the node
++ */
++static inline void nssinfo_node_destroy(uint32_t core_id, uint32_t if_num)
++{
++	struct node *node;
++
++	if (!nssinfo_coreid_ifnum_valid(core_id, if_num)) {
++		return;
++	}
++
++	node = nodes[core_id][if_num];
++	if (!node || node->subsystem_id < 0 || node->subsystem_id >= NSS_NLCMN_SUBSYS_MAX) {
++		return;
++	}
++
++	if (!nssinfo_subsystem_array[node->subsystem_id].destroy) {
++		return;
++	}
++
++	nssinfo_subsystem_array[node->subsystem_id].destroy(core_id, if_num);
++}
++
++/**
+  * @brief initialize all the modules
+  *
+  * @param flow_file[IN] parse it and display output accordingly
+Index: nss-userspace-oss-13.0.2024.11.27~7233e22/nssinfo/src/nssinfo_dynamic_interface.c
+===================================================================
+--- nss-userspace-oss-13.0.2024.11.27~7233e22.orig/nssinfo/src/nssinfo_dynamic_interface.c
++++ nss-userspace-oss-13.0.2024.11.27~7233e22/nssinfo/src/nssinfo_dynamic_interface.c
+@@ -27,13 +27,8 @@
+ static void nssinfo_dynamic_interface_destroy_notify(void *data)
+ {
+ 	struct nss_dynamic_interface_notification *nss_info = (struct nss_dynamic_interface_notification *)data;
+-	struct node *node = nodes[nss_info->core_id][nss_info->if_num];
+ 
+-	if (!node) {
+-		return;
+-	}
+-
+-	nssinfo_subsystem_array[node->subsystem_id].destroy(nss_info->core_id, nss_info->if_num);
++	nssinfo_node_destroy(nss_info->core_id, nss_info->if_num);
+ }
+ 
+ /*
