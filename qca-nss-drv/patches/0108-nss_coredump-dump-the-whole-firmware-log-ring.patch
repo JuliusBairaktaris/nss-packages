@@ -1,0 +1,158 @@
+From: Julius Bairaktaris <julius@bairaktaris.de>
+Subject: [PATCH] nss_coredump: dump the whole firmware log ring
+
+When the NSS firmware coredumps, nss_fw_coredump_notify() prints the
+last NSS_LOG_COREDUMP_LINE_NUM entries of the firmware's log ring, a
+hardcoded 25. The ring the firmware publishes through meminfo holds 32
+entries on ipq807x (debug_boot_log_desc, 0x1420 bytes over a 160-byte
+entry), so a single firmware trap - which logs five lines per trap and
+retries - fills the window on its own and the dump contains nothing but
+the trap. Whatever the firmware was doing beforehand, which is the only
+thing that identifies the fault, has already been printed over.
+
+Dump the ring instead of a fixed slice, and print the sequence number,
+thread and timestamp the firmware already records in every entry so a
+burst can be told apart from activity spread over hours, and so a
+wrapped ring is visible as such. The live readout in nss_log_read()
+already prints index and timestamp; only the coredump path dropped them.
+
+The descriptor is written by DMA from a firmware that has just died, so
+take the entry count from the ring the driver itself allocated where
+there is one, and refuse an implausible or zero count rather than
+deriving indices from it: the previous code would divide by zero on a
+zero count, and a count above INT_MAX made curr_index negative and
+walked the print outside the buffer. NSS_LOG_COREDUMP_LINE_MAX bounds
+the panic-path print for the meminfo ring, whose size only the firmware
+declares.
+
+The ring allocation moves to GFP_KERNEL - its only caller is the
+dev.nss.general.logbuf sysctl write handler, which runs in process
+context, and an atomic allocation is what would fail for a larger ring.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+---
+Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_coredump.c
+===================================================================
+--- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_coredump.c
++++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_coredump.c
+@@ -159,6 +159,7 @@ void nss_fw_coredump_notify(struct nss_c
+ 				int intr __attribute__ ((unused)))
+ {
+ 	int i, j, curr_index, useful_entries, num_cores_wait;
++	uint32_t nentries;
+ 	struct nss_log_descriptor *nld;
+ 	struct nss_log_entry *nle_init, *nle_print;
+ 	dma_addr_t dma_addr;
+@@ -175,32 +176,41 @@ void nss_fw_coredump_notify(struct nss_c
+ 	 */
+ 	nld = (struct nss_log_descriptor *)(nss_rbe[nss_own->id].addr);
+ 	dma_addr = nss_rbe[nss_own->id].dma_addr;
++	nentries = nss_rbe[nss_own->id].nentries;
+ 	if (!nld) {
+ 		nld = nss_own->meminfo_ctx.logbuffer;
+ 		dma_addr = nss_own->meminfo_ctx.logbuffer_dma;
++		nentries = nld ? nld->log_nentries : 0;
++	}
++
++	if (!nld) {
++		nss_info_always("%px: no NSS-FW logbuffer for core %u\n",
++				nss_own, nss_own->id);
++		goto dumped;
+ 	}
+ 
+ 	dma_sync_single_for_cpu(nss_own->dev, dma_addr, sizeof(struct nss_log_descriptor), DMA_FROM_DEVICE);
+ 
+-	/*
+-	 * If the current entry is smaller than or equal to the number of NSS_LOG_COREDUMP_LINE_NUM,
+-	 * only print whatever is in the buffer. Otherwise, dump last NSS_LOG_COREDUMP_LINE_NUM
+-	 * to the dmessage.
+-	 */
+-	nss_info_always("%px: Starting NSS-FW logbuffer dump for core %u\n",
+-			nss_own, nss_own->id);
++	if (!nentries || nentries > NSS_LOG_COREDUMP_LINE_MAX) {
++		nss_info_always("%px: NSS-FW logbuffer for core %u is unusable (%u entries)\n",
++				nss_own, nss_own->id, nentries);
++		goto dumped;
++	}
++
++	nss_info_always("%px: Starting NSS-FW logbuffer dump for core %u (ring %u entries, at %u)\n",
++			nss_own, nss_own->id, nentries, nld->current_entry);
+ 	nle_init = nld->log_ring_buffer;
+-	if (nld->current_entry <= NSS_LOG_COREDUMP_LINE_NUM) {
++	if (nld->current_entry <= nentries) {
+ 		curr_index = 0;
+ 		useful_entries = nld->current_entry;
+ 	} else {
+-		curr_index = ((nld->current_entry - NSS_LOG_COREDUMP_LINE_NUM) % nld->log_nentries);
+-		useful_entries = NSS_LOG_COREDUMP_LINE_NUM;
++		curr_index = ((nld->current_entry - nentries) % nentries);
++		useful_entries = nentries;
+ 	}
+ 
+ 	nle_print = nle_init + curr_index;
+ 	for (j = index = curr_index; j < (curr_index + useful_entries); j++, index++) {
+-		if (j == nld->log_nentries) {
++		if (j == (int)nentries) {
+ 			nle_print = nle_init;
+ 			index = 0;
+ 		}
+@@ -209,10 +219,13 @@ void nss_fw_coredump_notify(struct nss_c
+ 			+ offsetof(struct nss_log_descriptor, log_ring_buffer);
+ 		dma_sync_single_for_cpu(nss_own->dev, dma_addr + offset,
+ 				sizeof(struct nss_log_entry), DMA_FROM_DEVICE);
+-		nss_info_always("%px: %s\n", nss_own, nle_print->message);
++		nss_info_always("%px: %llu %3u %010u: %s\n", nss_own,
++				nle_print->sequence_num, nle_print->thread_num,
++				nle_print->timestamp, nle_print->message);
+ 		nle_print++;
+ 	}
+ 
++dumped:
+ 	if (nss_own->state & NSS_CORE_STATE_PANIC)
+ 		return;
+ 
+Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_log.c
+===================================================================
+--- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_log.c
++++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_log.c
+@@ -416,7 +416,7 @@ bool nss_debug_log_buffer_alloc(uint8_t
+ 	}
+ 
+ 	size = sizeof(struct nss_log_descriptor) + (sizeof(struct nss_log_entry) * nentry);
+-	addr = kmalloc(size, GFP_ATOMIC);
++	addr = kmalloc(size, GFP_KERNEL);
+ 	if (!addr) {
+ 		nss_warning("%px: Failed to allocate memory for logging (size:%d)\n", nss_ctx, size);
+ 		return false;
+Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_log.h
+===================================================================
+--- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_log.h
++++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_log.h
+@@ -33,6 +33,13 @@ enum nss_debug_interface_msg_type {
+ };
+ 
+ /*
++ * Upper bound on the number of firmware log entries printed during a
++ * coredump. The ring size decides how much is actually dumped; this only
++ * caps the panic-path print if the firmware left a corrupt descriptor.
++ */
++#define NSS_LOG_COREDUMP_LINE_MAX	1024
++
++/*
+  * The size of each log entry to be displayed.
+  */
+ #define	NSS_LOG_OUTPUT_LINE_SIZE	151	/* 5 + 12 + 132 + '\n' + '\0' (see below) */
+@@ -41,13 +48,6 @@ enum nss_debug_interface_msg_type {
+ #define	NSS_LOG_COOKIE			0xFF785634
+ 
+ /*
+- * Dump last N entry during the coredump.
+- * This number should be lower than the minimum size of the logbuf
+- * which 32 right now.
+- */
+-#define NSS_LOG_COREDUMP_LINE_NUM	25
+-
+-/*
+  * Saves the ring buffer address for logging per NSS core
+  */
+ struct nss_log_ring_buffer_addr {
