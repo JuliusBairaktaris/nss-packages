@@ -72,8 +72,17 @@ get_front_end_mode() {
 }
 
 disable_packet_steering() {
-  uci -q set network.globals.packet_steering=0 && uci commit network.globals.packet_steering
-  uci -q del network.globals.steering_flows    && uci commit network.globals.steering_flows
+  # Only write when the value is not already what we want. This runs on every
+  # ECM start and on the network/packet_steering reload triggers, and an
+  # unconditional `uci commit` is a write to the user's stored config - on a
+  # UBI overlay, a flash write - for a setting that changes approximately
+  # never. Reading first makes the common path free.
+  [ "$(uci -q get network.globals.packet_steering)" = 0 ] || {
+    uci -q set network.globals.packet_steering=0 && uci commit network.globals.packet_steering
+  }
+  [ -z "$(uci -q get network.globals.steering_flows)" ] || {
+    uci -q del network.globals.steering_flows && uci commit network.globals.steering_flows
+  }
 
   if [ -e "/usr/libexec/platform/packet-steering.sh" ]; then
     /usr/libexec/platform/packet-steering.sh 0
