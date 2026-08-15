@@ -1,0 +1,60 @@
+mc_snooping: pull the MLD group address before reading it
+
+mc_ipv6_rcv() validates eight bytes:
+
+	if (unlikely(!pskb_may_pull(skb2, offset + sizeof(*icmp6h))))
+		goto out;
+
+then casts that header to struct mld_msg - icmp6hdr plus a 16-byte
+in6_addr - and hands &mld->mld_mca to mc_ipv6_report() (ICMPV6_MGM_REPORT)
+and mc_ipv6_leave_group() (ICMPV6_MGM_REDUCTION). Both read the group
+address at offset 8..23: a multicast test, MC_CHECK_TBIT(), and a full
+16-byte copy into the mdb key. Nothing checks those bytes are present, so
+an ICMPv6 type 131 or 132 message that is exactly eight bytes long reads
+16 bytes past the end of the frame, and the result becomes the group hash
+key an unauthenticated client just installed.
+
+Found by a coverage-guided ASan harness over mc_rcv(); a 70-byte frame
+reproduces it - IPv6 payload_len 16, an 8-byte hop-by-hop router alert,
+then `83 00 00 00 00 00 00 00`. On hardware the read lands in skb
+tailroom rather than faulting, which makes it a disclosure of whatever
+the buffer last held into the snooping table rather than a panic; when
+the frame carries trailing bytes, the pskb_trim_rcsum() above trims
+skb->len to the attacker's declared payload_len, so the bytes read past
+the logical packet are attacker-supplied.
+
+The two siblings are already correct, which is what makes this a gap
+rather than a design: mc_ipv4_rcv() pulls the whole struct igmphdr
+including ->group, and mc_ipv6_query() guards with
+skb->len == sizeof(*mld).
+
+The pull cannot simply be widened - an MLDv2 report with no group records
+is legitimately eight bytes and shares this path - so make it conditional
+on the two types that read the address, and re-derive the header
+afterwards because pskb_may_pull() may reallocate.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+--- a/mc_snooping.c
++++ b/mc_snooping.c
+@@ -2536,6 +2536,20 @@
+ 	MC_SKB_CB(skb)->igmp = 1;
+ 	MC_SKB_CB(skb)->mdb = NULL;
+ 
++	/*
++	 * Only struct icmp6hdr was pulled above. The report and done arms below
++	 * read struct mld_msg, whose 16-byte group address sits past it, while
++	 * an MLDv2 report is legitimately just those 8 bytes - so the pull has
++	 * to be conditional on the type rather than simply larger.
++	 */
++	if ((icmp6h->icmp6_type == ICMPV6_MGM_REPORT ||
++			icmp6h->icmp6_type == ICMPV6_MGM_REDUCTION) &&
++			!pskb_may_pull(skb2, sizeof(struct mld_msg))) {
++		err = -EINVAL;
++		goto out;
++	}
++
++	icmp6h = icmp6_hdr(skb2);
+ 	mld = (struct mld_msg *)icmp6h;
+ 	err = 0;
+ 	switch (icmp6h->icmp6_type) {
