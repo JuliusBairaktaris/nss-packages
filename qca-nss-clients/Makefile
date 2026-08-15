@@ -55,6 +55,23 @@ define KernelPackage/qca-nss-drv-pppoe/Description
 Kernel modules for NSS connection manager - Support for PPPoE
 endef
 
+define KernelPackage/qca-nss-drv-vlan-mgr
+  SECTION:=kernel
+  CATEGORY:=Kernel modules
+  SUBMENU:=Network Devices
+  TITLE:=NSS VLAN interface manager
+  DEPENDS:=@(TARGET_qualcommax||TARGET_ipq806x) \
+	   +kmod-qca-nss-drv \
+	   +@NSS_DRV_VLAN_ENABLE
+  FILES:=$(PKG_BUILD_DIR)/vlan/qca-nss-vlan.ko
+endef
+
+define KernelPackage/qca-nss-drv-vlan-mgr/Description
+Registers 802.1Q upper devices of NSS physical interfaces as firmware
+VLAN interfaces, so the firmware delivers tagged traffic to the VLAN
+net device instead of untagging it onto the parent.
+endef
+
 define KernelPackage/qca-nss-drv-qdisc
   SECTION:=kernel
   CATEGORY:=Kernel modules
@@ -197,6 +214,10 @@ ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-pppoe),)
 NSS_CLIENTS_MAKE_OPTS+=pppoe=y
 endif
 
+ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-vlan-mgr),)
+NSS_CLIENTS_MAKE_OPTS+=vlan-mgr=y
+endif
+
 ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-bridge-mgr),)
 NSS_CLIENTS_MAKE_OPTS+=bridge-mgr=y
 endif
@@ -238,6 +259,7 @@ define Build/Compile
 endef
 
 $(eval $(call KernelPackage,qca-nss-drv-pppoe))
+$(eval $(call KernelPackage,qca-nss-drv-vlan-mgr))
 $(eval $(call KernelPackage,qca-nss-drv-qdisc))
 $(eval $(call KernelPackage,qca-nss-drv-igs))
 $(eval $(call KernelPackage,qca-nss-drv-bridge-mgr))
