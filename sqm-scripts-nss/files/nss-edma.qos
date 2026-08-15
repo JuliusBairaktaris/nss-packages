@@ -205,13 +205,22 @@ _bytes() {
 # dumps qdiscs in hash order, hence the per-kind keys and the sort.
 #
 # Only what decides behaviour is digested: rate, MTU, the limits, the band
-# count, the flow/quantum split, and the set_default flag that decides whether
-# the tree forwards at all. Burst follows from rate and MTU. Target and interval
+# count, the quantum, and the set_default flag that decides whether the tree
+# forwards at all. Burst follows from rate and MTU. Target and interval
 # are left out on purpose, at the price of a converge not noticing an edit to
 # them: tc prints both as three significant digits of milliseconds, so an
 # adapted target (itarget=auto yields e.g. 13992us) reads back as 14ms and the
 # rebuild would never converge - the very wedge this digest exists to prevent.
 # Editing them in uci reloads the sqm service anyway, and that stops first.
+#
+# The flow count is left out for the same reason, and it matters more. A codel
+# leaf needs one physically contiguous 128 KB block for 1024 flow queues, and
+# when memory is too fragmented to hand one over the driver halves the count
+# until it fits rather than lose the leaf - because a tree with no default leaf
+# takes the port off the air entirely. The tree then reads back with fewer flows
+# than the spec asked for, and digesting that would delete a working shaper and
+# rebuild it into the same shortage, over and over, re-opening the black hole on
+# every pass. Exactly the case the converge exists to survive.
 tree_sig() (
 	set -f	# tc spells the ingress qdisc '----------------'; never glob
 
@@ -225,7 +234,8 @@ tree_sig() (
 			rate)  echo "${kind}.rate=$(_kbit "$2")"; shift ;;
 			mtu)   echo "${kind}.mtu=$(_bytes "$2")"; shift ;;
 			limit) echo "${kind}.limit=$(_bytes "${2%p}")"; shift ;;
-			bands|flows|quantum) echo "${kind}.$1=$2"; shift ;;
+			bands|quantum) echo "${kind}.$1=$2"; shift ;;
+			flows) shift ;;
 			set_default) echo "${kind}.set_default" ;;
 			esac
 			shift
