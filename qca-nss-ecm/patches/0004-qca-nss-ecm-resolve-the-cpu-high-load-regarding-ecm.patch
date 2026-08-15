@@ -3,6 +3,21 @@ From: Dirk Buchwalder <buchwalder@posteo.de>
 Date: Sun, 27 Jun 2021 16:52:39 +0200
 Subject: [PATCH 05/12] qca-nss-ecm: resolve the cpu high load regarding ecm
 
+ecm_nss_ipv4_stats_sync_req_work() sleeps with usleep_range() between
+sync requests. That is an uninterruptible sleep, so the kworker running
+it counts toward the run queue for as long as ECM is loaded, and the
+router reports a load average pinned at 1.00 while sitting completely
+idle. msleep_interruptible() waits the same interval without being
+counted.
+
+Keep this. It reads like a cosmetic fix to a reported number, and a
+sweep for vendor patches with no diagnosed failure will propose
+dropping it - that was tried here. Removing it immediately produced
+load average 1.00 / 0.96 / 0.60 with the CPU 97% idle and a single
+task in D state, kworker/u16:0+ecm_nss_ipv4_workqueue. The cost is not
+the wrong number, it is that load average stops being usable as a
+health signal on a device that is monitored by it.
+
 If using ECM, cpu load goes up (around 1.0) and stucks there.
 This is due to using uninterruptible sleep function,
 the patch changes this to interruptible sleep function.
