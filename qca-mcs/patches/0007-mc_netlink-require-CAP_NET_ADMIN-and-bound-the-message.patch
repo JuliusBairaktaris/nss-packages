@@ -1,0 +1,105 @@
+mc_netlink: require CAP_NET_ADMIN and bound the message against the skb
+
+The NETLINK_QCA_MC control socket is created with an all-zero
+netlink_kernel_cfg - no NL_CFG_F_NONROOT_* flags, no bind hook - and
+netlink_sendmsg() applies netlink_allowed() only when a destination group
+or peer portid is set. A sendto() addressed to the kernel therefore
+carries no permission requirement at all, and __mc_netlink_receive()
+adds none of its own: any uid on the box can drive the whole command set,
+including the ACL table and the multicast forwarding policy.
+
+It is also handed the message with no framing check. The handler takes
+nlmsg_hdr(skb) and immediately stores into msghdr->status, 40 bytes in,
+without ever comparing skb->len against the header it is about to write
+through. Worse, msghdr->buf_len - a u32 from the same user buffer - is
+passed to mc_acltbl_fillbuf(), mc_mdbtbl_fillbuf() and
+mc_rtports_fillbuf() as the size of the *output* area, and each turns it
+straight into a write count:
+
+	num_entries = buflen / sizeof(*entry);
+
+The output area is the message skb itself. A short GET_ACL or GET_MDB
+carrying a large buf_len therefore writes one record per table entry past
+the end of a small allocation - and since the handler works on an
+skb_clone() that shares the data buffer, the wrecked skb_shared_info is
+later walked by skb_release_data() on the free path. The multicast
+database behind GET_MDB grows from IGMP/MLD reports, so the record count
+is not bounded by anything the caller had to be trusted with.
+
+Take the sender's capability first, reject a message too short to hold
+the header it is about to be written through, and clamp buf_len to what
+the skb actually carries. if_name gets terminated because dev_get_by_name()
+runs strlen() on it.
+
+The same function's ACL update has a matching defect. The IGMP branch
+writes the entry the search found; its MLD sibling writes at the count:
+
+	/* IGMP */ memcpy(&mc->igmp_acl.patterns[i], &pattern, sizeof pattern);
+	/* MLD  */ memcpy(&mc->mld_acl.patterns[mc->mld_acl.pattern_count], ...);
+
+Both sit under "if (i != pattern_count)", i.e. a match was found at i, so
+the MLD form targets the wrong slot in every case and lands one entry past
+struct mc_param_pattern patterns[MC_ACL_RULE_MAX_COUNT] once the table is
+full. mld_acl is the last ACL table in struct mc_struct, so those 48 bytes
+run into the router-port list head and its queue-entry pointer, both of
+which the packet path dereferences. 32 of the 48 come straight from the
+caller. Restore parity with the IGMP branch.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+--- a/mc_netlink.c
++++ b/mc_netlink.c
+@@ -120,7 +120,7 @@
+ 			MC_PRINT(KERN_INFO "%s: Del MLD acl rule, count=%d\n", __func__, mc->mld_acl.pattern_count);
+ 		} else {
+ 			if (i != mc->mld_acl.pattern_count) {
+-				memcpy(&mc->mld_acl.patterns[mc->mld_acl.pattern_count], &pattern, sizeof pattern);
++				memcpy(&mc->mld_acl.patterns[i], &pattern, sizeof pattern);
+ 				MC_PRINT(KERN_INFO "%s: Update acl rule\n", __func__);
+ 				goto out;
+ 			}
+@@ -546,6 +546,23 @@
+ 	u32 pid, seq, msgtype;
+ 	struct __mcctl_msg_header *msghdr;
+ 	struct mc_struct *mc = NULL;
++	u32 datalen;
++
++	/*
++	 * The socket is created with no flags and no bind hook, and
++	 * netlink_sendmsg() runs its own permission test only for a group or
++	 * peer destination - a message to the kernel skips it. Nothing else
++	 * below stands between an arbitrary uid and the command set.
++	 */
++	if (!netlink_capable(__skb, CAP_NET_ADMIN))
++		return;
++
++	/*
++	 * Everything below indexes off nlmsg_hdr() without ever consulting
++	 * skb->len, starting with an unconditional store into msghdr->status.
++	 */
++	if (__skb->len < NLMSG_LENGTH(0) + MC_MSG_HDRLEN)
++		return;
+ 
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
+ 	if ((skb = skb_clone(__skb, GFP_ATOMIC)) == NULL)
+@@ -563,6 +580,20 @@
+ 	msgdata = MC_MSG_DATA(nlh);
+ 	msgtype = nlh->nlmsg_type;
+ 
++	/*
++	 * buf_len is the caller's claim about the reply area, which the
++	 * fillbuf helpers divide by the entry size to get a write count. That
++	 * area is this skb, so the skb is the bound.
++	 */
++	datalen = skb->len - (NLMSG_LENGTH(0) + MC_MSG_HDRLEN);
++	if (msghdr->buf_len > datalen)
++		msghdr->buf_len = datalen;
++
++	/*
++	 * dev_get_by_name() runs strlen() on this.
++	 */
++	msghdr->if_name[IFNAMSIZ - 1] = '\0';
++
+ 	do {
+ 		/*
+ 		 * For global option to set, it needn't specified bridge
