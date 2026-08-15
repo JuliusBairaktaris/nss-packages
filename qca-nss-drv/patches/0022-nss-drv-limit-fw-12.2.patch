@@ -8,7 +8,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	uint32_t reserved;			/**< Reserved field for future use. */
  };
  
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  /**
   * nss_capwap_flow_attr
   *	Inner Flow attributes.
@@ -24,7 +24,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	/*
  	 * Flow attributes.
  	 */
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  	struct nss_capwap_flow_attr flow_attr;
 +#else
 +	uint32_t flow_id;		/**< Flow identification. */
@@ -38,7 +38,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  #define NSS_IPV4_RULE_CREATE_IDENTIFIER_VALID 0x1000
  		/**< Identifier is valid. */
  #define NSS_IPV4_RULE_CREATE_MIRROR_VALID 0x2000	/**< Mirror fields are valid. */
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  #define NSS_IPV4_RULE_CREATE_RAWIP_VALID 0x4000		/**< RAW IP fields are valid. */
 +#endif
  
@@ -50,7 +50,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	NSS_PVXLAN_MSG_TYPE_TUNNEL_DISABLE,	/**< Disable the tunnel. */
  	NSS_PVXLAN_MSG_TYPE_MAC_ADD,		/**< Add MAC rule to the database. */
  	NSS_PVXLAN_MSG_TYPE_MAC_DEL,		/**< Remove MAC rule from the database. */
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  	NSS_PVXLAN_MSG_TYPE_CONFIG_VP,		/**< VP configuration. */
  	NSS_PVXLAN_MSG_TYPE_UNCONFIG_VP,	/**< VP unconfiguration. */
 +#endif
@@ -61,7 +61,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  						/**< MAC entry allocation failed. */
  	PVXLAN_ERROR_MSG_MAC_ENTRY_DELETE_FAILED,
  						/**< MAC entry deletion failed. */
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  	PVXLAN_ERROR_MSG_CONFIG_VP_FAILED,
  						/**< VP configuration failed. */
  	PVXLAN_ERROR_MSG_UNCONFIG_VP_FAILED,
@@ -74,7 +74,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	uint16_t policy_id;			/**< Policy ID. */
  };
  
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  /**
   * nss_pvxlan_vp_msg
   *	VP configuration message.
@@ -90,7 +90,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  				/**< MAC rule add message. */
  		struct nss_pvxlan_mac_msg mac_del;
  				/**< MAC rule delete message. */
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  		struct nss_pvxlan_vp_msg vp_config;
  				/**< VP configuration message. */
 +#endif
@@ -99,53 +99,88 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
 --- a/exports/nss_wifili_if.h
 +++ b/exports/nss_wifili_if.h
-@@ -1086,8 +1086,10 @@ struct nss_wifili_tx_comp_ring_stats {
+@@ -87,7 +87,11 @@
+ 				/**< Maximum DMA error codes. */
+ #define NSS_WIFILI_MAX_TID 8
+ 				/**< Maximum TID values. */
++#ifndef NSS_FIRMWARE_VERSION_11_4
+ #define NSS_WIFILI_DELAY_INDEX_MAX 13
++#else
++#define NSS_WIFILI_DELAY_INDEX_MAX 10
++#endif
+ 				/**< Maximum software enqueue delay buckets. */
+ #define NSS_WIFILI_MAX_NUMBER_OF_ADDTNL_SEG 64
+ 				/**< Maximum number of additional pages allocated from host. */
+@@ -965,8 +969,10 @@ struct nss_wifili_peer_msg {
+ 			/**< Peer extended statistics memory. */
+ 	uint32_t flags;
+ 			/**< Peer flags. */
++#ifndef NSS_FIRMWARE_VERSION_11_4
+ 	uint32_t peer_memory_size;
+ 			/**< Peer memory allocated from host to NSS. */
++#endif
+ };
+ 
+ /**
+@@ -1086,8 +1092,10 @@ struct nss_wifili_tx_comp_ring_stats {
  	uint32_t invalid_cookie;		/**< Tx completion ring descriptor has invalid cookies. */
  	uint32_t hw_ring_empty;			/**< Tx completion hardware ring empty. */
  	uint32_t ring_reaped;			/**< Tx completion successfull ring reaped. */
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  	uint32_t tx_cap_enqueue_count;		/**< Number of Tx packets enqueued to host. */
  	uint32_t tx_cap_enqueue_fail_count;	/**< Number of Tx packets failed to enqueue to host. */
 +#endif
  };
-
+ 
  /**
-@@ -1496,8 +1496,10 @@ struct nss_wifili_rx_ctrl_stats {
+@@ -1486,11 +1494,14 @@ struct nss_wifili_rx_ctrl_stats {
+ 	uint32_t bcast_rcv_cnt;			/**< Total number of broadcast packets received. */
  	uint32_t bcast_rcv_bytes;		/**< Total number of broadcast bytes received. */
  	uint32_t defrag_mcast_drop;		/**< Total number of defrag multicast dropped packets. */
++#ifndef NSS_FIRMWARE_VERSION_11_4
  	uint32_t mcast_3addr_drop;		/**< Total number of 3 address multicast dropped packets. */
-+#ifdef NSS_FIRMWARE_VERSION_12_5
  	uint32_t ucast_rcv_cnt;			/**< Total number of unicast packets received. */
  	uint32_t ucast_rcv_bytes;		/**< Total number of unicast bytes received. */
 +#endif
  };
  
++#ifndef NSS_FIRMWARE_VERSION_11_4
  /**
-@@ -1509,8 +1511,10 @@ struct nss_wifili_retry_ctrl_stats {
- 	uint32_t tx_retry_count;		/**< Transmit retry count. */
- 	uint32_t tx_multiple_retry_count;	/**< Transmit multiple retry count. */
- 	uint32_t rx_retry_count;		/**< Receive retry count. */
-+#ifdef NSS_FIRMWARE_VERSION_12_5
+  * nss_wifili_retry_ctrl_stats
+  *	Peer retry statistics.
+@@ -1503,6 +1514,7 @@ struct nss_wifili_retry_ctrl_stats {
  	uint32_t tx_mpdu_retry_count;		/**< Per mpdu retry count. */
  	uint32_t tx_mpdu_total_retry_count;	/**< Total mpdu retry count. */
+ };
++#endif
+ 
+ /**
+  * nss_wifili_peer_ctrl_stats
+@@ -1514,8 +1526,10 @@ struct nss_wifili_peer_ctrl_stats {
+ 				/**< Peer Tx control statistics. */
+ 	struct nss_wifili_rx_ctrl_stats rx;
+ 				/**< Peer Rx control statistics. */
++#ifndef NSS_FIRMWARE_VERSION_11_4
+ 	struct nss_wifili_retry_ctrl_stats retry;
+ 				/**< Peer retry Statistics. */
 +#endif
  };
  
  /**
 --- a/nss_wifili_stats.c
 +++ b/nss_wifili_stats.c
-@@ -413,10 +413,12 @@ static void nss_wifili_stats_update(stru
+@@ -414,10 +414,12 @@ void nss_wifili_stats_sync(struct nss_ct
  								devstats->txcomp_stats[index].hw_ring_empty;
  		stats->stats_tx_comp[index][NSS_WIFILI_STATS_TX_DESC_FREE_REAPED] +=
  								devstats->txcomp_stats[index].ring_reaped;
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  		stats->stats_tx_comp[index][NSS_WIFILI_STATS_TX_CAPTURE_ENQUEUE] +=
  								devstats->txcomp_stats[index].tx_cap_enqueue_count;
  		stats->stats_tx_comp[index][NSS_WIFILI_STATS_TX_CAPTURE_ENQUEUE_FAIL] +=
  								devstats->txcomp_stats[index].tx_cap_enqueue_fail_count;
 +#endif
  	}
-
+ 
  	/*
 --- a/nss_pvxlan_log.c
 +++ b/nss_pvxlan_log.c
@@ -153,7 +188,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	"PVxLAN Disable Tunnel",
  	"PVxLAN Add MAC rule",
  	"PVxLAN Delete MAC rule",
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  	"PVxLAN Config VP"
 +#endif
  };
@@ -163,7 +198,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	"PVXLAN MAC Table Full",
  	"PVXLAN MAC Exists",
  	"PVXLAN MAC Does Not Exist",
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  	"PVXLAN Config VP failed"
 +#endif
  };
@@ -173,7 +208,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	nss_pvxlan_log_mac_msg(npvcm);
  }
  
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  /*
   * nss_pvxlan_log_unconfig_vp_msg()
   *	Log NSS PVXLAN unconfig VP message.
@@ -189,7 +224,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  		nss_pvxlan_log_mac_del_msg(npvm);
  		break;
  
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  	case NSS_PVXLAN_MSG_TYPE_CONFIG_VP:
  		nss_pvxlan_log_config_vp_msg(npvm);
  		break;
@@ -207,7 +242,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  		"CAPWAP Destination Port: %d\n"
  		"CAPWAP Source IP: %x %x %x %x\n"
  		"CAPWAP Destination IP: %x %x %x %x"
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  		"CAPWAP Flow type:%d Flow ID: %d SCS_SDWF ID: %d",
 +#else
 +		"CAPWAP Flow ID: %d",
@@ -219,7 +254,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  		ncfrm->src_ip[2], ncfrm->src_ip[3],
  		ncfrm->dst_ip[0], ncfrm->dst_ip[1],
  		ncfrm->dst_ip[2], ncfrm->dst_ip[3],
-+#ifdef NSS_FIRMWARE_VERSION_12_5
++#ifndef NSS_FIRMWARE_VERSION_11_4
  		ncfrm->flow_attr.type,
  		ncfrm->flow_attr.flow_id,
  		ncfrm->flow_attr.scs_sdwf_id);
