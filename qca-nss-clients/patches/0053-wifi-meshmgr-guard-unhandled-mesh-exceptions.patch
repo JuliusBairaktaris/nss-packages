@@ -1,0 +1,45 @@
+wifi_meshmgr: guard unhandled mesh exception numbers
+
+nss_wifi_meshmgr_config_mesh_exception() assigns ifnum only for the
+three exception numbers its switch handles, then passes it to
+nss_wifi_mesh_msg_init() as the destination interface of a firmware
+config message. The switch has no default, so any exception number the
+switch does not list -- NSS_WIFI_MESH_DS_MESH_PATH_EXPIRY (4) included,
+a documented value -- is sent to an uninitialized interface number.
+
+The only in-tree caller is the ath11k exc_rate_limit debugfs write,
+which parses "%u %u %u" with no range check, so a value of 4 or anything
+else reaches this switch. What the firmware then does with the message
+depends on whatever the uninitialised slot happens to hold: the two
+interface numbers the function does validate are checked against their
+dynamic-interface types a few lines above, and this one is checked
+against nothing.
+
+No vendor source handles case 4 either: pristine 11.4 and 12.5
+qca-nss-clients and qosmio's shipped 11.4 tree all end the switch at
+NSS_WIFI_MESH_US_MESH_PATH_NOT_FOUND with no default. Reject the value
+instead of inventing a mapping -- the DS (Eth - Wi-Fi) direction matches
+the encap interface, but no source states it, so dispatching it would be
+a guess. This leaves the DS mesh path expiry rate-limit configuration
+unsupported.
+
+Add a default that warns, drops the reference taken at the top of the
+function, and returns NSS_WIFI_MESHMGR_FAILURE_INVALID_EXCEPTION_NUM.
+That constant already exists for exactly this case.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+--- a/wifi_meshmgr/nss_wifi_meshmgr.c
++++ b/wifi_meshmgr/nss_wifi_meshmgr.c
+@@ -1640,6 +1640,11 @@
+ 	case NSS_WIFI_MESH_US_MESH_PATH_NOT_FOUND:
+ 		ifnum = decap_ifnum;
+ 		break;
++
++	default:
++		nss_wifi_meshmgr_warn("%px: invalid exception num: %u\n", &wmgr_ctx, wmrlc->exception_num);
++		nss_wifi_meshmgr_ref_dec(wmesh_ctx);
++		return NSS_WIFI_MESHMGR_FAILURE_INVALID_EXCEPTION_NUM;
+ 	}
+
+ 	/*
