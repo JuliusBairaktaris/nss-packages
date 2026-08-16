@@ -1,0 +1,56 @@
+wifi_meshmgr: check the dealloc result in if_create_sync error labels
+
+nss_wifi_meshmgr_if_create_sync() unwinds its two dynamic-interface
+allocations on five error labels. The dealloc return value is discarded
+and the warn that follows guards nss_status, which has nothing to do with
+the dealloc it claims to report:
+
+	- on the encap_reg_fail, decap_alloc_fail and decap_reg_fail gotos,
+	  nss_status has never been assigned, so the guard reads it
+	  uninitialized;
+	- on the config_failed path, nss_status holds the last config-message
+	  status, so a config failure prints "Decap/Encap interface dealloc
+	  failed: %d" carrying an unrelated status;
+	- a genuine dealloc failure is never reported on any path.
+
+nss_dynamic_interface_dealloc_node() returns nss_tx_status_t, not
+nss_wifi_meshmgr_status_t, so the dealloc result cannot simply be stored
+in nss_status without a type mismatch -- the guard tests the wrong
+variable rather than being one assignment short.
+
+Check each dealloc's own return against NSS_TX_SUCCESS and drop the
+nss_status reads at the labels. nss_status is then only read where it was
+just assigned (the config-message sends), so the declaration initializer
+the previous version of this patch added is no longer load-bearing and is
+gone.
+
+The identical wrong-guard pattern is in pristine 11.4 and 12.5 and in
+qosmio's shipped 11.4 tree; qosmio mutes the uninitialized read by
+initializing nss_status at declaration, which this patch does not carry
+forward. A sweep of the file found no other instance of this pattern.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+--- a/wifi_meshmgr/nss_wifi_meshmgr.c
++++ b/wifi_meshmgr/nss_wifi_meshmgr.c
+@@ -1920,16 +1920,14 @@
+ config_failed:
+ 	nss_unregister_wifi_mesh_if(decap_ifnum);
+ decap_reg_fail:
+-	nss_dynamic_interface_dealloc_node(decap_ifnum, NSS_DYNAMIC_INTERFACE_TYPE_WIFI_MESH_OUTER);
+-	if (nss_status != NSS_WIFI_MESHMGR_SUCCESS) {
+-		nss_wifi_meshmgr_warn("%px: Decap interface dealloc failed: %d\n", dev, nss_status);
++	if (nss_dynamic_interface_dealloc_node(decap_ifnum, NSS_DYNAMIC_INTERFACE_TYPE_WIFI_MESH_OUTER) != NSS_TX_SUCCESS) {
++		nss_wifi_meshmgr_warn("%px: Decap interface dealloc failed\n", dev);
+ 	}
+ decap_alloc_fail:
+ 	nss_unregister_wifi_mesh_if(encap_ifnum);
+ encap_reg_fail:
+-	nss_dynamic_interface_dealloc_node(encap_ifnum, NSS_DYNAMIC_INTERFACE_TYPE_WIFI_MESH_INNER);
+-	if (nss_status != NSS_WIFI_MESHMGR_SUCCESS) {
+-		nss_wifi_meshmgr_warn("%px: Encap interface dealloc failed: %d\n", dev, nss_status);
++	if (nss_dynamic_interface_dealloc_node(encap_ifnum, NSS_DYNAMIC_INTERFACE_TYPE_WIFI_MESH_INNER) != NSS_TX_SUCCESS) {
++		nss_wifi_meshmgr_warn("%px: Encap interface dealloc failed\n", dev);
+ 	}
+ encap_alloc_fail:
+ 	kfree(wmesh_ctx);
