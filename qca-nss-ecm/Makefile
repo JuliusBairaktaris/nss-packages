@@ -115,6 +115,10 @@ ifneq ($(CONFIG_PACKAGE_kmod-nat46),)
 ECM_MAKE_OPTS+=ECM_INTERFACE_MAP_T_ENABLE=y
 endif
 
+ifneq ($(CONFIG_PACKAGE_kmod-qmi_wwan_q)$(CONFIG_PACKAGE_kmod-qmi_wwan_q_nss),)
+ECM_MAKE_OPTS+=ECM_INTERFACE_RAWIP_ENABLE=y
+endif
+
 ifneq ($(CONFIG_PACKAGE_kmod-ipsec),)
 ECM_MAKE_OPTS+=ECM_INTERFACE_IPSEC_ENABLE=y
 endif
