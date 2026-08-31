@@ -23,6 +23,7 @@ PKG_BUILD_FLAGS:=gc-sections lto
 
 PKG_CONFIG_DEPENDS:= \
 	CONFIG_NSS_DRV_PPPOE_ENABLE \
+	CONFIG_NSS_DRV_RMNET_ENABLE \
 	CONFIG_NSS_FIRMWARE_VERSION_11_4 \
 	CONFIG_NSS_FIRMWARE_VERSION_12_5 \
 	CONFIG_PACKAGE_kmod-ipsec \
@@ -117,6 +118,16 @@ endif
 
 ifneq ($(CONFIG_PACKAGE_kmod-ipsec),)
 ECM_MAKE_OPTS+=ECM_INTERFACE_IPSEC_ENABLE=y
+endif
+
+# A raw-IP WAN - a cellular modem in rmnet, MHI or QMI raw-IP mode - reaches the
+# firmware through the rmnet_rx node pair, so the interface type is only usable
+# when the driver carries that transport and the rule ABI carries the raw-IP
+# valid flag, which the 11.4 firmware line does not.
+ifneq ($(CONFIG_NSS_DRV_RMNET_ENABLE),)
+ifeq ($(CONFIG_NSS_FIRMWARE_VERSION_11_4),)
+ECM_MAKE_OPTS+=ECM_INTERFACE_RAWIP_ENABLE=y
+endif
 endif
 
 ifneq ($(CONFIG_PACKAGE_kmod-pppoe),)

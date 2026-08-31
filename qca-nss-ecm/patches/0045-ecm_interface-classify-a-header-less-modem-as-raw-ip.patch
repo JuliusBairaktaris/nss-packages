@@ -1,0 +1,105 @@
+From: Julius Bairaktaris <julius@bairaktaris.de>
+Subject: [PATCH] ecm_interface: classify a header-less modem as raw IP
+
+The raw-IP interface type is recognised by ARPHRD_RAWIP alone, which
+rmnet, MHI and MBIM devices declare. A QMI modem in raw-IP mode does
+not: qmi_wwan_netdev_setup() drops the header operations, the header
+length and the address length but leaves the type at ARPHRD_NONE, and
+that is the WAN interface of every USB-attached cellular router.
+
+Such a device reaches the end of the interface type ladder as unknown,
+and an unknown interface never sets the node-address done flag, so
+ecm_ipv4_node_establish_and_ref() and its IPv6 counterpart fail and the
+connection is never offered to the acceleration engine.
+
+Recognise a raw-IP device by what it carries rather than by its ARP
+type. ARPHRD_NONE with no header, no address and no rtnl link operations
+also describes the software translators - nat46 builds exactly that
+shape - so the parent device a modem bus sets is what tells the two
+apart: a translator has none.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+Assisted-by: Claude Opus 5 (1M context)
+---
+--- a/ecm_interface.h
++++ b/ecm_interface.h
+@@ -35,6 +35,26 @@
+ #define ECM_INTERFACE_LOOPBACK_DEV_INDEX 1
+ 
+ /*
++ * ecm_interface_is_rawip()
++ *	Determine whether a net device carries bare IP with no link-layer header.
++ *
++ * rmnet, MHI and MBIM devices declare ARPHRD_RAWIP. A QMI modem in raw-IP mode
++ * leaves the type at ARPHRD_NONE with no header and no address, which the
++ * software translators use as well; only a device a modem bus created has a
++ * parent, which separates the two.
++ */
++static inline bool ecm_interface_is_rawip(struct net_device *dev)
++{
++	if (dev->type == ARPHRD_RAWIP) {
++		return true;
++	}
++
++	return dev->type == ARPHRD_NONE && dev->dev.parent
++		&& !dev->rtnl_link_ops && !dev->hard_header_len
++		&& !dev->addr_len;
++}
++
++/*
+  * IPSec Core and Interface Definition
+  */
+ #define ECM_INTERFACE_IPSEC_DEFAULT_CORE 0x2
+--- a/ecm_interface.c
++++ b/ecm_interface.c
+@@ -4495,7 +4495,7 @@
+ 	/*
+ 	 * RAWIP type?
+ 	 */
+-	if (dev_type == ARPHRD_RAWIP) {
++	if (ecm_interface_is_rawip(dev)) {
+ 		/*
+ 		 * Copy netdev address to the type info.
+ 		 */
+@@ -6738,7 +6738,7 @@
+ 			 * RAWIP?
+ 			 * If it is RAWIP type, there is no next device.
+ 			 */
+-			if (dest_dev_type == ARPHRD_RAWIP) {
++			if (ecm_interface_is_rawip(dest_dev)) {
+ 				DEBUG_TRACE("%px: Net device: %px is RAWIP type: %d\n", feci, dest_dev, dest_dev_type);
+ 				break;
+ 			}
+--- a/frontends/cmn/ecm_ipv4.c
++++ b/frontends/cmn/ecm_ipv4.c
+@@ -297,7 +297,7 @@
+ 			/*
+ 			 * If the local dev is Rmnet device, no need to do a MAC lookup.
+ 			 */
+-			if (local_dev->type == ARPHRD_RAWIP) {
++			if (ecm_interface_is_rawip(local_dev)) {
+ 				dev_put(local_dev);
+ 				done = true;
+ 				break;
+--- a/frontends/cmn/ecm_ipv6.c
++++ b/frontends/cmn/ecm_ipv6.c
+@@ -295,7 +295,7 @@
+ 			/*
+ 			 * If the local dev is Rmnet device, no need to do a MAC lookup.
+ 			 */
+-			if (local_dev->type == ARPHRD_RAWIP) {
++			if (ecm_interface_is_rawip(local_dev)) {
+ 				dev_put(local_dev);
+ 				done = true;
+ 				break;
+--- a/frontends/nss/ecm_nss_common.h
++++ b/frontends/nss/ecm_nss_common.h
+@@ -74,7 +74,7 @@
+ 	}
+ 
+ #ifdef ECM_INTERFACE_RAWIP_ENABLE
+-	if (dev->type == ARPHRD_RAWIP) {
++	if (ecm_interface_is_rawip(dev)) {
+ 		return nss_rmnet_rx_get_ifnum(dev);
+ 	}
+ #endif
