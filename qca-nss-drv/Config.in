@@ -180,6 +180,12 @@ config NSS_DRV_RMNET_ENABLE
 	default n
 	prompt "Enable RMNET"
 	depends on TARGET_qualcommax_ipq807x || TARGET_qualcommax_ipq50xx
+	select NSS_DRV_C2C_ENABLE
+	help
+	  Raw-IP WAN offload. The firmware carries the rmnet_rx nodes on
+	  NSS core 1, so nss_rmnet_rx_create() points the host-to-NSS node
+	  at the core-to-core transmit interface and C2C has to be built
+	  for that nexthop to exist.
 
 config NSS_DRV_SHAPER_ENABLE
 	bool
