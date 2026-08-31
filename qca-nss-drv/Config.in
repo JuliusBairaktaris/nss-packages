@@ -177,7 +177,7 @@ config NSS_DRV_QVPN_ENABLE
 
 config NSS_DRV_RMNET_ENABLE
 	bool
-	default n
+	default y
 	prompt "Enable RMNET"
 	depends on TARGET_qualcommax_ipq807x || TARGET_qualcommax_ipq50xx
 	select NSS_DRV_C2C_ENABLE
@@ -185,7 +185,9 @@ config NSS_DRV_RMNET_ENABLE
 	  Raw-IP WAN offload. The firmware carries the rmnet_rx nodes on
 	  NSS core 1, so nss_rmnet_rx_create() points the host-to-NSS node
 	  at the core-to-core transmit interface and C2C has to be built
-	  for that nexthop to exist.
+	  for that nexthop to exist. Nothing binds on a board without a
+	  raw-IP network device, and the allocation is answered by core 1
+	  alone, so a device tree that leaves that core off binds nothing.
 
 config NSS_DRV_SHAPER_ENABLE
 	bool
