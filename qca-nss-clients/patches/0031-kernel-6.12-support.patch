@@ -1,0 +1,269 @@
+kernel-6.12-support
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+--- a/Makefile
++++ b/Makefile
+@@ -10,6 +10,9 @@ qca-nss-tun6rd-objs := nss_connmgr_tun6r
+ ccflags-y += -DNSS_TUN6RD_DEBUG_LEVEL=0
+ ccflags-y += -Wall -Werror
+ 
++# Kernel 6.12 compatibility
++ccflags-y += -Wno-missing-prototypes -include $(src)/compat.h
++
+ KERNELVERSION := $(word 1, $(subst ., ,$(KERNELVERSION))).$(word 2, $(subst ., ,$(KERNELVERSION)))
+ 
+ obj-$(bridge-mgr)+= bridge/
+--- a/bridge/nss_bridge_mgr.c
++++ b/bridge/nss_bridge_mgr.c
+@@ -1483,7 +1483,7 @@ static struct notifier_block nss_bridge_
+  * nss_bridge_mgr_wan_inf_add_handler
+  *	Marks an interface as a WAN interface for special handling by bridge.
+  */
+-static int nss_bridge_mgr_wan_intf_add_handler(struct ctl_table *table,
++static int nss_bridge_mgr_wan_intf_add_handler(compat_const struct ctl_table *table,
+ 						int write, void __user *buffer,
+ 						size_t *lenp, loff_t *ppos)
+ {
+@@ -1532,7 +1532,7 @@ static int nss_bridge_mgr_wan_intf_add_h
+  * nss_bridge_mgr_wan_inf_del_handler
+  *	Un-marks an interface as a WAN interface.
+  */
+-static int nss_bridge_mgr_wan_intf_del_handler(struct ctl_table *table,
++static int nss_bridge_mgr_wan_intf_del_handler(compat_const struct ctl_table *table,
+ 						int write, void __user *buffer,
+ 						size_t *lenp, loff_t *ppos)
+ {
+@@ -1590,8 +1590,7 @@ static struct ctl_table nss_bridge_mgr_t
+ 		.maxlen         = sizeof(char) * IFNAMSIZ,
+ 		.mode           = 0644,
+ 		.proc_handler   = &nss_bridge_mgr_wan_intf_del_handler,
+-	},
+-	{ }
++	}
+ };
+ 
+ static struct ctl_table nss_bridge_mgr_dir[] = {
+--- a/mirror/nss_mirror_ctl.c
++++ b/mirror/nss_mirror_ctl.c
+@@ -132,7 +132,7 @@ static int nss_mirror_ctl_get_netdev_by_
+ {
+ 	char dev_name[IFNAMSIZ] = {0};
+ 
+-	strlcpy(dev_name, name, IFNAMSIZ);
++	strscpy(dev_name, name, IFNAMSIZ);
+ 	if (dev_name[strlen(dev_name) - 1] == '\n') {
+ 		dev_name[strlen(dev_name) - 1] = '\0';
+ 	}
+@@ -357,7 +357,7 @@ static int nss_mirror_ctl_parse_display_
+ 		return -1;
+ 	}
+ 
+-	strlcpy(dev_name, value, IFNAMSIZ);
++	strscpy(dev_name, value, IFNAMSIZ);
+ 	if (dev_name[strlen(dev_name) - 1] == '\n') {
+ 		dev_name[strlen(dev_name) - 1] = '\0';
+ 	}
+@@ -754,7 +754,7 @@ static int32_t nss_mirror_ctl_parse_cmd(
+  * nss_mirror_ctl_config_handler()
+  *	Mirror sysctl config handler.
+  */
+-static int nss_mirror_ctl_config_handler(struct ctl_table *ctl, int write,
++static int nss_mirror_ctl_config_handler(compat_const struct ctl_table *ctl, int write,
+ 		 void __user *buf, size_t *lenp, loff_t *ppos)
+ {
+ 	char *buffer, *pfree;
+@@ -914,8 +914,7 @@ static struct ctl_table nss_mirror_table
+ 		.maxlen		= sizeof(nss_mirror_config_data),
+ 		.mode		= 0644,
+ 		.proc_handler	= &nss_mirror_ctl_config_handler,
+-	},
+-	{ }
++	}
+ };
+ 
+ /*
+--- a/netlink/nss_nlipv4.c
++++ b/netlink/nss_nlipv4.c
+@@ -129,7 +129,11 @@ static struct neighbour *nss_nlipv4_get_
+ 	/*
+ 	 * search for route entry
+ 	 */
++#if LINUX_VERSION_CODE <= KERNEL_VERSION(6, 10, 0)
+ 	rt = ip_route_output(&init_net, ip_addr, 0, 0, 0);
++#else
++	rt = ip_route_output(&init_net, ip_addr, 0, 0, 0, 0);
++#endif
+ 	if (IS_ERR(rt)) {
+ 		return NULL;
+ 	}
+--- a/netlink/nss_nludp_st.c
++++ b/netlink/nss_nludp_st.c
+@@ -749,7 +749,11 @@ static struct neighbour *nss_nludp_st_ge
+ 	/*
+ 	 * search for route entry
+ 	 */
++#if LINUX_VERSION_CODE <= KERNEL_VERSION(6, 10, 0)
+ 	rt = ip_route_output(&init_net, ip_addr, 0, 0, 0);
++#else
++	rt = ip_route_output(&init_net, ip_addr, 0, 0, 0, 0);
++#endif
+ 	if (IS_ERR(rt)) {
+ 		return NULL;
+ 	}
+--- a/nss_qdisc/nss_bf.c
++++ b/nss_qdisc/nss_bf.c
+@@ -381,7 +381,11 @@ static int nss_bf_graft_class(struct Qdi
+ 	 */
+ 	nss_qdisc_info("Grafting old: %px with new: %px\n", *old, new);
+ 	if (*old != &noop_qdisc) {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 8, 0)
+ 		struct nss_qdisc *nq_old = (struct nss_qdisc *)qdisc_priv(*old);
++#else
++		struct nss_qdisc *nq_old = (struct nss_qdisc *)qdisc_priv(((struct Qdisc *)(*old)));
++#endif
+ 		nss_qdisc_info("Detaching old: %px\n", *old);
+ 		nim_detach.msg.shaper_configure.config.msg.shaper_node_config.qos_tag = cl->nq.qos_tag;
+ 		if (nss_qdisc_node_detach(&cl->nq, nq_old, &nim_detach,
+--- a/nss_qdisc/nss_qdisc.c
++++ b/nss_qdisc/nss_qdisc.c
+@@ -374,7 +374,9 @@ static int nss_qdisc_refresh_bshaper_ass
+ 	br_update.port_list_count = 0;
+ 	br_update.unassign_count = 0;
+ 
+-	read_lock(&dev_base_lock);
++#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 10, 0))
++ 	read_lock(&dev_base_lock);
++#endif
+ 	dev = first_net_device(&init_net);
+ 
+ 	while(dev) {
+@@ -421,7 +423,10 @@ static int nss_qdisc_refresh_bshaper_ass
+ nextdev:
+ 		dev = next_net_device(dev);
+ 	}
+-	read_unlock(&dev_base_lock);
++
++#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 10, 0))
++ 	read_unlock(&dev_base_lock);
++#endif
+ 
+ 	nss_qdisc_info("List count %d\n", br_update.port_list_count);
+ 
+--- a/nss_qdisc/nss_tbl.c
++++ b/nss_qdisc/nss_tbl.c
+@@ -350,7 +350,11 @@ static int nss_tbl_graft(struct Qdisc *s
+ 
+ 	nss_qdisc_info("Grafting old: %px with new: %px\n", *old, new);
+ 	if (*old != &noop_qdisc) {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 8, 0)
+ 		struct nss_qdisc *nq_old = (struct nss_qdisc *)qdisc_priv(*old);
++#else
++		struct nss_qdisc *nq_old = (struct nss_qdisc *)qdisc_priv(((struct Qdisc *)(*old)));
++#endif
+ 		nss_qdisc_info("Detaching old: %px\n", *old);
+ 		nim_detach.msg.shaper_configure.config.msg.shaper_node_config.qos_tag = q->nq.qos_tag;
+ 		if (nss_qdisc_node_detach(&q->nq, nq_old, &nim_detach,
+--- a/vlan/nss_vlan_mgr.c
++++ b/vlan/nss_vlan_mgr.c
+@@ -1540,7 +1540,7 @@ static int nss_vlan_mgr_update_ppe_tpid(
+  * nss_vlan_mgr_tpid_proc_handler()
+  *	Sets customer TPID and service TPID
+  */
+-static int nss_vlan_mgr_tpid_proc_handler(struct ctl_table *ctl,
++static int nss_vlan_mgr_tpid_proc_handler(compat_const struct ctl_table *ctl,
+ 					  int write, void __user *buffer,
+ 					  size_t *lenp, loff_t *ppos)
+ {
+@@ -1568,8 +1568,7 @@ static struct ctl_table nss_vlan_table[]
+ 		.maxlen		= sizeof(int),
+ 		.mode		= 0644,
+ 		.proc_handler	= &nss_vlan_mgr_tpid_proc_handler,
+-	},
+-	{ }
++	}
+ };
+ 
+ /*
+--- a/nss_qdisc/nss_htb.c
++++ b/nss_qdisc/nss_htb.c
+@@ -642,7 +642,11 @@ static int nss_htb_graft_class(struct Qd
+ 	nss_qdisc_info("grafting old: %x with new: %x\n", (*old)->handle, new->handle);
+ 	if (*old != &noop_qdisc) {
+ 		nss_qdisc_trace("detaching old: %x\n", (*old)->handle);
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 10, 0)
+ 		nq_old = qdisc_priv(*old);
++#else
++		nq_old = qdisc_priv(((struct Qdisc *)(*old)));
++#endif
+ 		nim_detach.msg.shaper_configure.config.msg.shaper_node_config.qos_tag = cl->nq.qos_tag;
+ 		nim_detach.msg.shaper_configure.config.msg.shaper_node_config.snc.htb_group_detach.child_qos_tag = nq_old->qos_tag;
+ 		if (nss_qdisc_node_detach(&cl->nq, nq_old, &nim_detach,
+--- a/nss_qdisc/nss_wrr.c
++++ b/nss_qdisc/nss_wrr.c
+@@ -488,7 +488,11 @@ static int nss_wrr_graft_class(struct Qd
+ 	 */
+ 	nss_qdisc_info("Grafting old: %px with new: %px\n", *old, new);
+ 	if (*old != &noop_qdisc) {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 8, 0)
+ 		struct nss_qdisc *nq_child = qdisc_priv(*old);
++#else
++		struct nss_qdisc *nq_child = qdisc_priv(((struct Qdisc *)(*old)));
++#endif
+ 		nss_qdisc_info("Detaching old: %px\n", *old);
+ 		nim_detach.msg.shaper_configure.config.msg.shaper_node_config.qos_tag = cl->nq.qos_tag;
+ 		if (nss_qdisc_node_detach(&cl->nq, nq_child, &nim_detach,
+--- /dev/null
++++ b/compat.h
+@@ -0,0 +1,15 @@
++// compat.h
++#ifndef _COMPAT_H
++#define _COMPAT_H
++
++#include <linux/version.h>
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0)
++#include <linux/vmalloc.h>
++#define compat_const const
++#define strlcpy strscpy
++#else
++#define compat_const
++#endif
++
++#endif /* _COMPAT_H */
+--- a/nss_qdisc/nss_prio.c
++++ b/nss_qdisc/nss_prio.c
+@@ -341,7 +341,11 @@ static int nss_prio_graft(struct Qdisc *
+ 
+ 	nss_qdisc_info("Grafting old: %px with new: %px\n", *old, new);
+ 	if (*old != &noop_qdisc) {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 8, 0)
+ 		struct nss_qdisc *nq_old = qdisc_priv(*old);
++#else
++		struct nss_qdisc *nq_old = qdisc_priv(((struct Qdisc *)(*old)));
++#endif
+ 		nss_qdisc_info("Detaching old: %px\n", *old);
+ 		nim_detach.msg.shaper_configure.config.msg.shaper_node_config.qos_tag = q->nq.qos_tag;
+ 
+--- a/netlink/nss_nldtls.c
++++ b/netlink/nss_nldtls.c
+@@ -1108,7 +1108,7 @@ static ssize_t nss_nldtls_tunnel_stats_r
+ 	list_for_each_entry(entry, &gbl_ctx.dtls_list_head, list) {
+ 		spin_lock_bh(&gbl_ctx.lock);
+ 		memcpy(&stats, &entry->stats, sizeof(stats));
+-		strlcpy(dev_name, entry->dev_name, IFNAMSIZ);
++		strscpy(dev_name, entry->dev_name, IFNAMSIZ);
+ 		spin_unlock_bh(&gbl_ctx.lock);
+ 
+ 		size_wr += scnprintf(lbuf + size_wr, size_al - size_wr, "\n--------------------------------");
+--- a/netlink/nss_nlipsec.c
++++ b/netlink/nss_nlipsec.c
+@@ -394,7 +394,7 @@ static int nss_nlipsec_op_create_tunnel(
+ 	 * the tunnel I/F name into the same rule and send it
+ 	 * as part of the response for the create operation
+ 	 */
+-	strlcpy(nl_rule->ifname, dev->name, IFNAMSIZ);
++	strscpy(nl_rule->ifname, dev->name, IFNAMSIZ);
+ 
+ 	/*
+ 	 * Send to userspace

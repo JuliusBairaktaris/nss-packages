@@ -1,0 +1,258 @@
+fixup-compiler-errors
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+--- a/nss_qdisc/nss_ppe.c
++++ b/nss_qdisc/nss_ppe.c
+@@ -348,8 +348,8 @@ static void nss_ppe_queue_disable(struct
+ 	/*
+ 	 * Disable queue enqueue, dequeue and flush the queue.
+ 	 */
+-	fal_qm_enqueue_ctrl_set(0, npq->q.ucast_qid, false);
+-	fal_scheduler_dequeue_ctrl_set(0, npq->q.ucast_qid, false);
++	fal_qm_enqueue_ctrl_set(0, npq->q.ucast_qid, 0);
++	fal_scheduler_dequeue_ctrl_set(0, npq->q.ucast_qid, 0);
+ 	fal_queue_flush(0, port_num, npq->q.ucast_qid);
+ 
+ 	nss_qdisc_info("Disable SSDK level0 queue scheduler successful\n");
+@@ -370,8 +370,8 @@ static void nss_ppe_queue_enable(struct
+ 	/*
+ 	 * Enable queue enqueue and dequeue.
+ 	 */
+-	fal_qm_enqueue_ctrl_set(0, npq->q.ucast_qid, true);
+-	fal_scheduler_dequeue_ctrl_set(0, npq->q.ucast_qid, true);
++	fal_qm_enqueue_ctrl_set(0, npq->q.ucast_qid, 1);
++	fal_scheduler_dequeue_ctrl_set(0, npq->q.ucast_qid, 1);
+ 
+ 	nss_qdisc_info("Enable SSDK level0 queue scheduler successful\n");
+ }
+@@ -535,14 +535,14 @@ static void nss_ppe_all_queue_disable(ui
+ 	 * Disable queue enqueue, dequeue and flush the queue.
+ 	 */
+ 	for (offset = 0; offset < nss_ppe_max_get(port_num, NSS_PPE_UCAST_QUEUE); offset++) {
+-		fal_qm_enqueue_ctrl_set(0, qid + offset, false);
+-		fal_scheduler_dequeue_ctrl_set(0, qid + offset, false);
++		fal_qm_enqueue_ctrl_set(0, qid + offset, 0);
++		fal_scheduler_dequeue_ctrl_set(0, qid + offset, 0);
+ 		fal_queue_flush(0, port_num, qid + offset);
+ 	}
+ 
+ 	for (offset = 0; offset < nss_ppe_max_get(port_num, NSS_PPE_MCAST_QUEUE); offset++) {
+-		fal_qm_enqueue_ctrl_set(0, mcast_qid + offset, false);
+-		fal_scheduler_dequeue_ctrl_set(0, mcast_qid + offset, false);
++		fal_qm_enqueue_ctrl_set(0, mcast_qid + offset, 0);
++		fal_scheduler_dequeue_ctrl_set(0, mcast_qid + offset, 0);
+ 		fal_queue_flush(0, port_num, mcast_qid + offset);
+ 	}
+ 
+@@ -563,13 +563,13 @@ static void nss_ppe_all_queue_enable(uin
+ 	 * Enable queue enqueue and dequeue.
+ 	 */
+ 	for (offset = 0; offset < nss_ppe_max_get(port_num, NSS_PPE_UCAST_QUEUE); offset++) {
+-		fal_qm_enqueue_ctrl_set(0, qid + offset, true);
+-		fal_scheduler_dequeue_ctrl_set(0, qid + offset, true);
++		fal_qm_enqueue_ctrl_set(0, qid + offset, 1);
++		fal_scheduler_dequeue_ctrl_set(0, qid + offset, 1);
+ 	}
+ 
+ 	for (offset = 0; offset < nss_ppe_max_get(port_num, NSS_PPE_MCAST_QUEUE); offset++) {
+-		fal_qm_enqueue_ctrl_set(0, mcast_qid + offset, true);
+-		fal_scheduler_dequeue_ctrl_set(0, mcast_qid + offset, true);
++		fal_qm_enqueue_ctrl_set(0, mcast_qid + offset, 1);
++		fal_scheduler_dequeue_ctrl_set(0, mcast_qid + offset, 1);
+ 	}
+ 
+ 	nss_qdisc_info("Enable SSDK level0 queue scheduler successful\n");
+@@ -589,15 +589,15 @@ static void nss_ppe_assigned_queue_enabl
+ 	spin_lock_bh(&ppe_port->lock);
+ 	res = ppe_port->res_used[NSS_PPE_UCAST_QUEUE];
+ 	while (res) {
+-		fal_qm_enqueue_ctrl_set(0, qid + res->offset, true);
+-		fal_scheduler_dequeue_ctrl_set(0, qid + res->offset, true);
++		fal_qm_enqueue_ctrl_set(0, qid + res->offset, (a_bool_t)true);
++		fal_scheduler_dequeue_ctrl_set(0, qid + res->offset, (a_bool_t)true);
+ 		res = res->next;
+ 	}
+ 
+ 	res = ppe_port->res_used[NSS_PPE_MCAST_QUEUE];
+ 	while (res) {
+-		fal_qm_enqueue_ctrl_set(0, mcast_qid + res->offset, true);
+-		fal_scheduler_dequeue_ctrl_set(0, mcast_qid + res->offset, true);
++		fal_qm_enqueue_ctrl_set(0, mcast_qid + res->offset, (a_bool_t)true);
++		fal_scheduler_dequeue_ctrl_set(0, mcast_qid + res->offset, (a_bool_t)true);
+ 		res = res->next;
+ 	}
+ 
+@@ -642,7 +642,7 @@ static int nss_ppe_l1_queue_scheduler_co
+ 	l1cfg.e_pri = NSS_PPE_PRIORITY_MAX - npq->scheduler.priority;
+ 	l1cfg.c_drr_id = npq->l1c_drrid;
+ 	l1cfg.e_drr_id = npq->l1e_drrid;
+-	l1cfg.drr_frame_mode = NSS_PPE_FRAME_CRC;
++	l1cfg.drr_frame_mode = (fal_qos_drr_frame_mode_t)NSS_PPE_FRAME_CRC;
+ 
+ 	nss_qdisc_trace("SSDK level1 configuration: Port:%d, l0spid:%d, c_drrid:%d, c_pri:%d, c_drr_wt:%d, e_drrid:%d, e_pri:%d, e_drr_wt:%d, l1spid:%d\n",
+ 			port_num, npq->l0spid, l1cfg.c_drr_id, l1cfg.c_pri, l1cfg.c_drr_wt, l1cfg.e_drr_id, l1cfg.e_pri, l1cfg.e_drr_wt, l1cfg.sp_id);
+@@ -935,7 +935,7 @@ static int nss_ppe_l0_queue_scheduler_co
+ 	l0cfg.e_pri = NSS_PPE_PRIORITY_MAX - npq->scheduler.priority;
+ 	l0cfg.c_drr_id = npq->l0c_drrid;
+ 	l0cfg.e_drr_id = npq->l0e_drrid;
+-	l0cfg.drr_frame_mode = NSS_PPE_FRAME_CRC;
++	l0cfg.drr_frame_mode = (fal_qos_drr_frame_mode_t)NSS_PPE_FRAME_CRC;
+ 
+ 	nss_qdisc_trace("SSDK level0 configuration: Port:%d, ucast_qid:%d, c_drrid:%d, c_pri:%d, c_drr_wt:%d, e_drrid:%d, e_pri:%d, e_drr_wt:%d, l0spid:%d\n",
+ 			port_num, npq->q.ucast_qid, l0cfg.c_drr_id, l0cfg.c_pri, l0cfg.c_drr_wt, l0cfg.e_drr_id, l0cfg.e_pri, l0cfg.e_drr_wt, l0cfg.sp_id);
+@@ -1059,7 +1059,7 @@ static int nss_ppe_port_shaper_set(struc
+ 	cfg.c_shaper_en = 1;
+ 	cfg.cbs = npq->shaper.cburst;
+ 	cfg.cir = (npq->shaper.crate / 1000) * 8;
+-	cfg.shaper_frame_mode = NSS_PPE_FRAME_CRC;
++	cfg.shaper_frame_mode = (fal_shaper_frame_mode_t)NSS_PPE_FRAME_CRC;
+ 
+ 	/*
+ 	 * Take HW scaling into consideration
+@@ -1141,7 +1141,7 @@ static int nss_ppe_flow_shaper_set(struc
+ 	cfg.e_shaper_en = 1;
+ 	cfg.ebs = npq->shaper.cburst;
+ 	cfg.eir = ((npq->shaper.crate / 1000) * 8) - cfg.cir;
+-	cfg.shaper_frame_mode = NSS_PPE_FRAME_CRC;
++	cfg.shaper_frame_mode = (fal_shaper_frame_mode_t)NSS_PPE_FRAME_CRC;
+ 
+ 	/*
+ 	 * Take HW scaling into consideration
+@@ -1225,7 +1225,7 @@ static int nss_ppe_queue_shaper_set(stru
+ 	cfg.e_shaper_en = 1;
+ 	cfg.ebs = npq->shaper.cburst;
+ 	cfg.eir = ((npq->shaper.crate / 1000) * 8) - cfg.cir;
+-	cfg.shaper_frame_mode = NSS_PPE_FRAME_CRC;
++	cfg.shaper_frame_mode = (fal_shaper_frame_mode_t)NSS_PPE_FRAME_CRC;
+ 
+ 	/*
+ 	 * Take HW scaling into consideration
+@@ -1293,7 +1293,6 @@ static void nss_ppe_attach_free(uint32_t
+ 	spin_unlock_bh(&ppe_port->lock);
+ 
+ 	nss_qdisc_info("port:%d, type:%d, res:%px\n", port, res->type, res);
+-	return;
+ }
+ 
+ /*
+@@ -2379,7 +2378,7 @@ int nss_ppe_init(struct Qdisc *sch, stru
+ 		 * nothing useful and thus we don't allocate any resource".
+ 		 */
+ 		nss_qdisc_trace("Qdisc parent = %px, handle=%x\n", nq->parent,  nq->parent->qos_tag);
+-		if ((nq->parent->npq.sub_type == NSS_SHAPER_CONFIG_PPE_SN_TYPE_HTB)) {
++		if (nq->parent->npq.sub_type == NSS_SHAPER_CONFIG_PPE_SN_TYPE_HTB) {
+ 			nq->npq.level = nq->parent->npq.level;
+ 		} else {
+ 			nq->npq.level = nq->parent->npq.level - 1;
+--- a/nss_qdisc/nss_ppe_mc.c
++++ b/nss_qdisc/nss_ppe_mc.c
+@@ -32,8 +32,8 @@ int nss_ppe_mcast_queue_reset(struct nss
+ 		return 0;
+ 	}
+ 
+-	fal_qm_enqueue_ctrl_set(0, npq->q.mcast_qid, false);
+-	fal_scheduler_dequeue_ctrl_set(0, npq->q.mcast_qid, false);
++	fal_qm_enqueue_ctrl_set(0, npq->q.mcast_qid, 0);
++	fal_scheduler_dequeue_ctrl_set(0, npq->q.mcast_qid, 0);
+ 	fal_queue_flush(0, port_num, npq->q.mcast_qid);
+ 
+ 	/*
+@@ -153,8 +153,8 @@ int nss_ppe_mcast_queue_set(struct nss_q
+ 		}
+ 	}
+ 
+-	fal_qm_enqueue_ctrl_set(0, npq->q.mcast_qid, true);
+-	fal_scheduler_dequeue_ctrl_set(0, npq->q.mcast_qid, true);
++	fal_qm_enqueue_ctrl_set(0, npq->q.mcast_qid, 1);
++	fal_scheduler_dequeue_ctrl_set(0, npq->q.mcast_qid, 1);
+ 
+ 	nss_qdisc_info("SSDK multicast queue configuration successful for port:%d\n", port_num);
+ 	return 0;
+@@ -164,4 +164,4 @@ fail:
+ 	npq->q.mcast_qid = 0;
+ 	npq->q.mcast_valid = 0;
+ 	return -EINVAL;
+-}
+\ No newline at end of file
++}
+--- a/nss_qdisc/nss_wred.c
++++ b/nss_qdisc/nss_wred.c
+@@ -291,7 +291,7 @@ static int nss_wred_change(struct Qdisc
+ 
+ 	nim.msg.shaper_configure.config.msg.shaper_node_config.qos_tag = q->nq.qos_tag;
+ 	nim.msg.shaper_configure.config.msg.shaper_node_config.snc.wred_param.limit = qopt->limit;
+-	nim.msg.shaper_configure.config.msg.shaper_node_config.snc.wred_param.weight_mode = qopt->weight_mode;
++	nim.msg.shaper_configure.config.msg.shaper_node_config.snc.wred_param.weight_mode = (nss_shaper_config_wred_weight_mode_t)qopt->weight_mode;
+ 	nim.msg.shaper_configure.config.msg.shaper_node_config.snc.wred_param.weight_mode_value = qopt->weight_mode_value;
+ 	nim.msg.shaper_configure.config.msg.shaper_node_config.snc.wred_param.rap.min = qopt->rap.min;
+ 	nim.msg.shaper_configure.config.msg.shaper_node_config.snc.wred_param.rap.max = qopt->rap.max;
+--- a/vlan/nss_vlan_mgr.c
++++ b/vlan/nss_vlan_mgr.c
+@@ -448,8 +448,8 @@ static int nss_vlan_mgr_bond_configure_p
+ 	/*
+ 	 * Fields for match
+ 	 */
+-	v->eg_xlt_rule.vsi_valid = true;	/* Use vsi as search key*/
+-	v->eg_xlt_rule.vsi_enable = true;	/* Use vsi as search key*/
++	v->eg_xlt_rule.vsi_valid = 1;		/* Use vsi as search key*/
++	v->eg_xlt_rule.vsi_enable = 1;		/* Use vsi as search key*/
+ 	v->eg_xlt_rule.vsi = vsi;		/* Use vsi as search key*/
+ 	v->eg_xlt_rule.s_tagged = 0x7;		/* Accept tagged/untagged/priority tagged svlan */
+ 	v->eg_xlt_rule.c_tagged = 0x7;		/* Accept tagged/untagged/priority tagged cvlan */
+@@ -612,8 +612,8 @@ static int nss_vlan_mgr_configure_ppe(st
+ 	/*
+ 	 * Fields for match
+ 	 */
+-	v->eg_xlt_rule.vsi_valid = true;	/* Use vsi as search key*/
+-	v->eg_xlt_rule.vsi_enable = true;	/* Use vsi as search key*/
++	v->eg_xlt_rule.vsi_valid = 1;		/* Use vsi as search key*/
++	v->eg_xlt_rule.vsi_enable = 1;		/* Use vsi as search key*/
+ 	v->eg_xlt_rule.vsi = vsi;		/* Use vsi as search key*/
+ 	v->eg_xlt_rule.s_tagged = 0x7;		/* Accept tagged/untagged/priority tagged svlan */
+ 	v->eg_xlt_rule.c_tagged = 0x7;		/* Accept tagged/untagged/priority tagged cvlan */
+@@ -1820,8 +1820,8 @@ void nss_vlan_mgr_add_vlan_rule(struct n
+ 	/*
+ 	 * Fields for match
+ 	 */
+-	eg_xlt_rule.vsi_valid = true;	/* Use vsi as search key */
+-	eg_xlt_rule.vsi_enable = true;	/* Use vsi as search key */
++	eg_xlt_rule.vsi_valid = 1;	/* Use vsi as search key */
++	eg_xlt_rule.vsi_enable = 1;	/* Use vsi as search key */
+ 	eg_xlt_rule.vsi = bridge_vsi;	/* Use vsi as search key */
+ 	eg_xlt_rule.s_tagged = 0x7;	/* Accept tagged/untagged/priority tagged svlan */
+ 	eg_xlt_rule.c_tagged = 0x7;	/* Accept tagged/untagged/priority tagged cvlan */
+@@ -1888,8 +1888,8 @@ void nss_vlan_mgr_del_vlan_rule(struct n
+ 	/*
+ 	 * Fields for match
+ 	 */
+-	eg_xlt_rule.vsi_valid = true;	/* Use vsi as search key */
+-	eg_xlt_rule.vsi_enable = true;	/* Use vsi as search key */
++	eg_xlt_rule.vsi_valid = 1;	/* Use vsi as search key */
++	eg_xlt_rule.vsi_enable = 1;	/* Use vsi as search key */
+ 	eg_xlt_rule.vsi = bridge_vsi;	/* Use vsi as search key */
+ 	eg_xlt_rule.s_tagged = 0x7;	/* Accept tagged/untagged/priority tagged svlan */
+ 	eg_xlt_rule.c_tagged = 0x7;	/* Accept tagged/untagged/priority tagged cvlan */
+--- a/wifi_meshmgr/nss_wifi_meshmgr.c
++++ b/wifi_meshmgr/nss_wifi_meshmgr.c
+@@ -1637,9 +1637,6 @@ nss_wifi_meshmgr_config_mesh_exception(n
+ 		break;
+ 
+ 	case NSS_WIFI_MESH_US_MESH_PROXY_NOT_FOUND:
+-		ifnum = decap_ifnum;
+-		break;
+-
+ 	case NSS_WIFI_MESH_US_MESH_PATH_NOT_FOUND:
+ 		ifnum = decap_ifnum;
+ 		break;
+--- a/netlink/nss_nlipsec.c
++++ b/netlink/nss_nlipsec.c
+@@ -228,7 +228,7 @@ static void nss_nlipsec_process_event(vo
+ 	/*
+ 	 * Initialize the NETLINK common header
+ 	 */
+-	nss_nlipsec_rule_init(nl_rule, ev->type);
++	nss_nlipsec_rule_init(nl_rule, (enum nss_nlipsec_cmd)ev->type);
+ 
+ 	/*
+ 	 * Copy the contents of the sync message into the NETLINK message
