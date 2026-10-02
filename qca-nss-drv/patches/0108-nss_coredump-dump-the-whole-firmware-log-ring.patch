@@ -66,9 +66,9 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 ---
 --- a/nss_coredump.c
 +++ b/nss_coredump.c
-@@ -32,12 +32,24 @@
+@@ -28,12 +28,24 @@
+ 
  #include <linux/panic_notifier.h>	/* for panic_notifier_list */
- #endif
  #include <linux/jiffies.h>	/* for time */
 +#include <linux/sched/clock.h>	/* for local_clock */
  #include "nss_tx_rx_common.h"
@@ -91,7 +91,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  static struct delayed_work coredump_queuewait;
  static struct workqueue_struct *coredump_workqueue;
  
-@@ -159,6 +171,8 @@ void nss_fw_coredump_notify(struct nss_c
+@@ -155,6 +167,8 @@ void nss_fw_coredump_notify(struct nss_c
  				int intr __attribute__ ((unused)))
  {
  	int i, j, curr_index, useful_entries, num_cores_wait;
@@ -100,7 +100,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	struct nss_log_descriptor *nld;
  	struct nss_log_entry *nle_init, *nle_print;
  	dma_addr_t dma_addr;
-@@ -168,51 +182,80 @@ void nss_fw_coredump_notify(struct nss_c
+@@ -164,51 +178,80 @@ void nss_fw_coredump_notify(struct nss_c
  			nss_own, intr, nss_own->nmap, nss_own->state);
  	nss_own->state |= NSS_CORE_STATE_FW_DEAD;
  	queue_delayed_work(coredump_workqueue, &coredump_queuewait,

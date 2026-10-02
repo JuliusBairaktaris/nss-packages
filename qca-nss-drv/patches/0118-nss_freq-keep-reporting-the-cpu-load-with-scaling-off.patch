@@ -16,11 +16,9 @@ turn scaling back on.
 Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 ---
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_init.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_init.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_init.c
-@@ -231,6 +231,7 @@ static int nss_current_freq_handler(comp
+--- a/nss_init.c
++++ b/nss_init.c
+@@ -205,6 +205,7 @@ static int nss_current_freq_handler(cons
  	nss_cmd_buf.auto_scale = 0;
  	nss_runtime_samples.freq_scale_ready = 0;
  	nss_runtime_samples.freq_scale_index = i;
@@ -28,7 +26,7 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  
  	nss_work = (nss_work_t *)kmalloc(sizeof(nss_work_t), GFP_ATOMIC);
  	if (!nss_work) {
-@@ -239,7 +240,7 @@ static int nss_current_freq_handler(comp
+@@ -213,7 +214,7 @@ static int nss_current_freq_handler(cons
  	}
  	INIT_WORK((struct work_struct *)nss_work, nss_hal_wq_function);
  	nss_work->frequency = nss_cmd_buf.current_freq;
@@ -37,7 +35,7 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  
  	/*
  	 * Ensure we start with a fresh set of samples later
-@@ -267,28 +268,10 @@ static int nss_auto_scale_handler(compat
+@@ -241,28 +242,10 @@ static int nss_auto_scale_handler(const
  
  	if (nss_cmd_buf.auto_scale != 1) {
  		/*
