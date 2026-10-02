@@ -1,0 +1,62 @@
+mc_snooping: do not undo a pull that never happened
+
+mc_ipv6_rcv() clones the skb, then tests that the ICMPv6 header is
+present before pulling to it:
+
+	err = -EINVAL;
+	if (unlikely(!pskb_may_pull(skb2, offset + sizeof(*icmp6h))))
+		goto out;
+
+	__skb_pull(skb2, offset);
+
+but the out: label is the common exit and unconditionally runs the undo:
+
+	out:
+		__skb_push(skb2, offset);
+
+so on that one early return the push has no matching pull. Every other
+goto in the function is below the pull and is correctly paired; this is
+the only one above it.
+
+offset comes from ipv6_skip_exthdr(), which advances by each extension
+header's own length field and, once it reaches a header it does not
+recognise, returns that offset without testing it against skb->len. So a
+frame carrying a hop-by-hop header whose length byte claims 200 yields
+offset 1648 on a 124-byte frame - the pskb_may_pull() correctly refuses
+it, and the undo then walks skb2->data 1632 bytes below skb2->head and
+sets skb2->len to 1756 against a 124-byte buffer.
+
+Nothing between that goto and kfree_skb() dereferences skb2->data, and
+the free path works off ->head and ->end, so the shipped kernel does not
+fault today - the geometry is corrupt but unread. __skb_push() is the
+unchecked variant, so nothing catches it either.
+
+One unauthenticated frame from any bridged LAN or Wi-Fi station reaches
+it, in the default configuration and with no prior state, which is why it
+is worth closing even though it is currently latent. Split the label so
+the not-yet-pulled exit skips the undo and still frees the clone.
+
+Found by a coverage-guided ASan harness over mc_rcv() with skb geometry
+checked at kfree_skb().
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+--- a/mc_snooping.c
++++ b/mc_snooping.c
+@@ -2478,7 +2478,7 @@
+ 
+ 	err = -EINVAL;
+ 	if (unlikely(!pskb_may_pull(skb2, offset + sizeof(*icmp6h))))
+-		goto out;
++		goto out_nopull;
+ 
+ 	__skb_pull(skb2, offset);
+ 	skb_reset_transport_header(skb2);
+@@ -2585,6 +2585,7 @@
+ 
+ out:
+ 	__skb_push(skb2, offset);
++out_nopull:
+ 	if (skb2 != skb)
+ 		kfree_skb(skb2);
+ 	return err;
