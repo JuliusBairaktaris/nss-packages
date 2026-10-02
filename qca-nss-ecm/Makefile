@@ -3,20 +3,18 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=qca-nss-ecm
 PKG_RELEASE:=1
 
-# Source: https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-nss-ecm.git @ 5997ffd40deef3ee6788a411bd3a06dbb5beb784
-# (tag NHSS.QSDK.14.0.r9-00040-O, the newest QSDK tag; pre-generated 'git archive' of the commit).
-# ECM is the only one of the four NSS sources that has moved since r9-00025-O;
-# nss-drv and qca-mcs are already at the newest tag, and nss-clients has no
-# branch newer than NHSS.QSDK.12.5.5.
+# Source: https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-nss-ecm.git @ 7894b769eeb64f1c44fde547a107a8b866997590
+# (head of win.nss.1.0.r39, which carries every change of NHSS.QSDK.14.0.r9-00040-O;
+# pre-generated 'git archive' of the commit).
 # Fetched from our release mirror so the download is deterministic and hash-verified;
 # git-proto regenerates the zstd archive locally and its hash varies by toolchain.
-PKG_SOURCE_DATE:=2026-08-06
-PKG_SOURCE_VERSION:=5997ffd40deef3ee6788a411bd3a06dbb5beb784
+PKG_SOURCE_DATE:=2026-09-06
+PKG_SOURCE_VERSION:=7894b769eeb64f1c44fde547a107a8b866997590
 QSDK_VERSION:=14.0
 PKG_VERSION:=$(QSDK_VERSION).$(subst -,.,$(PKG_SOURCE_DATE))~$(PKG_SOURCE_VERSION)
 PKG_SOURCE:=$(PKG_NAME)-$(subst ~,.,$(PKG_VERSION)).tar.zst
 PKG_SOURCE_URL:=https://github.com/JuliusBairaktaris/nss-packages/releases/download/nss-source-tarballs
-PKG_HASH:=e13f62fe9182d3d74462cfe313dcd421cc885fe68ecdb509b96314c7b1217fc4
+PKG_HASH:=a4d5f4c4a6c4bfac3ded4af993c88249f7afc4444ed78368f367eda4ef231886
 
 PKG_BUILD_PARALLEL:=1
 PKG_FLAGS:=nonshared
