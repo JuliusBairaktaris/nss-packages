@@ -1,0 +1,80 @@
+nss-drv: bound the firmware-supplied indices in dynamic_interface and edma stats
+
+Two response handlers use a value the firmware wrote as an array index
+with no range test.
+
+nss_dynamic_interface.c indexes
+nss_dynamic_interface_assigned_types[NSS_CORE_MAX][NSS_MAX_DYNAMIC_INTERFACES]
+- 2 x 128 four-byte enums in .bss - at if_num - NSS_DYNAMIC_IF_START. The
+ALLOC arm tests only the sign, and the DEALLOC arm tests nothing at all,
+so an if_num of 1..27 stores before the array and anything from 156
+upwards stores past it, at a fully scaled offset. On the ALLOC arm the
+stored value is firmware-chosen too. The file already carries the right
+predicate - nss_is_dynamic_interface() - and applies it on the transmit
+side and in nss_dynamic_interface_get_type(), which performs the
+identical subscript; only the response handler skips it. Use it in both
+arms.
+
+nss_edma_stats.c takes both loop bounds straight from the message:
+
+	for (i = nepss->start_port; i < nepss->end_port; i++)
+		edma_stats.port[i]... = nepss->port_stats[j]...;
+
+port_stats[] is a flexible array, so j walks off the response buffer
+while i walks off port[NSS_EDMA_NUM_PORTS_MAX]. The header already states
+the intended subset size, NSS_EDMA_STATS_MSG_MAX_PORTS, and nothing in
+the tree referenced it. Reject a range that is empty, ends past the array
+or is wider than one message can carry - a bad pair means the message is
+junk, so there is nothing to salvage by clamping.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+--- a/nss_dynamic_interface.c
++++ b/nss_dynamic_interface.c
+@@ -84,10 +84,10 @@ static void nss_dynamic_interface_handle
+ 		if (ncm->response == NSS_CMN_RESPONSE_ACK) {
+ 			nss_info("%px alloc_node response ack if_num %d\n", nss_ctx, ndim->msg.alloc_node.if_num);
+ 			if_num = ndim->msg.alloc_node.if_num;
+-			if (if_num > 0) {
++			if (nss_is_dynamic_interface(if_num)) {
+ 				nss_dynamic_interface_assigned_types[nss_ctx->id][if_num - NSS_DYNAMIC_IF_START] = ndim->msg.alloc_node.type;
+ 			} else {
+-				nss_warning("%px: if_num < 0\n", nss_ctx);
++				nss_warning("%px: if_num %d out of the dynamic range\n", nss_ctx, if_num);
+ 			}
+ 		}
+ 
+@@ -97,6 +97,11 @@ static void nss_dynamic_interface_handle
+ 		if (ncm->response == NSS_CMN_RESPONSE_ACK) {
+ 			nss_info("%px dealloc_node response ack if_num %d\n", nss_ctx, ndim->msg.dealloc_node.if_num);
+ 			if_num = ndim->msg.dealloc_node.if_num;
++			if (!nss_is_dynamic_interface(if_num)) {
++				nss_warning("%px: if_num %d out of the dynamic range\n", nss_ctx, if_num);
++				break;
++			}
++
+ 			nss_dynamic_interface_assigned_types[nss_ctx->id][if_num - NSS_DYNAMIC_IF_START] = NSS_DYNAMIC_INTERFACE_TYPE_NONE;
+ 			/*
+ 			 * Send dynamic interface dealloc notifications to the registered modules.
+--- a/nss_edma_stats.c
++++ b/nss_edma_stats.c
+@@ -751,6 +751,19 @@ void nss_edma_metadata_port_stats_sync(s
+ 	uint16_t i, j = 0;
+ 	struct nss_top_instance *nss_top = nss_ctx->nss_top;
+ 
++	/*
++	 * Both bounds are firmware-written, and port_stats[] is a flexible
++	 * array: i walks edma_stats.port[NSS_EDMA_NUM_PORTS_MAX] while j walks
++	 * off the message. NSS_EDMA_STATS_MSG_MAX_PORTS is the subset size the
++	 * payload was sized for, which nothing in the tree enforced.
++	 */
++	if (nepss->start_port >= nepss->end_port ||
++			nepss->end_port > NSS_EDMA_NUM_PORTS_MAX ||
++			nepss->end_port - nepss->start_port > NSS_EDMA_STATS_MSG_MAX_PORTS) {
++		nss_warning("%px: bad port stats range %u..%u", nss_ctx, nepss->start_port, nepss->end_port);
++		return;
++	}
++
+ 	spin_lock_bh(&nss_top->stats_lock);
+ 
+ 	/*
