@@ -1,0 +1,200 @@
+nss_qdisc: keep a codel leaf buildable when its flow queue memory is scarce
+
+nssfq_codel hands the firmware one physically contiguous block for its whole
+flow queue array. At the default 1024 flows that is 128 KB, an order-5
+allocation, and orders above PAGE_ALLOC_COSTLY_ORDER are failed outright
+rather than compacted for, so a router that has been forwarding for a while
+refuses it. The qdisc went down with the allocation, which is not a survivable
+outcome here: until some leaf below the root carries set_default, the shaper
+tree drops every frame the interface is asked to transmit - ARP and PPPoE
+discovery included - so a single refused allocation took the port silently off
+the air, carrier up and nothing logged, until the next reboot. Halve the flow
+count until it fits instead, and ask the allocator to work for it first.
+
+The same function could not build a flow-queue codel at all unless the count
+was spelled out. A zero count from tc means "use the default" on nssfq_codel
+and "single queue" only on plain nsscodel, but the firmware size request was
+gated on the value rather than on the qdisc kind, so the per-flow size stayed
+zero and the allocation asked for get_order(0) - BITS_PER_LONG minus
+PAGE_SHIFT, an order nothing can satisfy. Every `tc qdisc add ... nssfq_codel`
+without an explicit `flows` therefore failed, and left the same dark tree
+behind. Resolve the effective count in one place so the size request, the
+allocation and the firmware message all agree on it, and keep the requested
+count so a later change command that repeats the original request is not
+rejected by a fallback the user never asked for.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+--- a/nss_qdisc/nss_codel.c
++++ b/nss_qdisc/nss_codel.c
+@@ -23,6 +23,12 @@
+ #define NSS_CODEL_DEFAULT_FQ_COUNT 1024
+ 
+ /*
++ * Fewest flow queues worth falling back to when the firmware's flow queue
++ * memory cannot be had at the requested size.
++ */
++#define NSS_CODEL_MIN_FQ_COUNT 64
++
++/*
+  * Codel stats structure.
+  */
+ struct nss_codel_stats_sq {
+@@ -50,7 +56,8 @@
+ 	u32 target;		/* Acceptable value of queue delay */
+ 	u32 limit;		/* Length of queue */
+ 	u32 interval;		/* Monitoring interval */
+-	u32 flows;		/* Number of flow buckets */
++	u32 flows;		/* Number of flow buckets actually in use */
++	u32 flows_req;		/* Number of flow buckets asked for */
+ 	u32 quantum;		/* Weight (in bytes) used for DRR of flow buckets */
+ 	unsigned long flow_queue_mem;
+ 				/* Pointer to flow queue memory */
+@@ -209,6 +216,25 @@
+ }
+ 
+ /*
++ * nss_codel_flow_count()
++ *	Number of flow queues this qdisc will run with.
++ *
++ * A zero flow count from tc means "use the default" on nssfq_codel and "single
++ * queue, no flow queue memory at all" on plain nsscodel. Which of the two this
++ * is decides that, never the value itself, so everything that depends on the
++ * count - whether to ask the firmware for a per-flow size, how much memory to
++ * allocate, and what to tell the firmware - resolves it here and agrees.
++ */
++static uint32_t nss_codel_flow_count(struct Qdisc *sch, struct tc_nsscodel_qopt *qopt)
++{
++	if (sch->ops != &nss_fq_codel_qdisc_ops) {
++		return 0;
++	}
++
++	return qopt->flows ? qopt->flows : NSS_CODEL_DEFAULT_FQ_COUNT;
++}
++
++/*
+  * nss_codel_mem_sz_get()
+  *	Sends a message to nss_codel queue (in FW) requesting per flow-queue mem size.
+  *
+@@ -222,8 +248,16 @@
+ 	/*
+ 	 * No memory allocation needed for codel when operating in single
+ 	 * queue mode. This is needed only for flow-queue mode.
++	 *
++	 * Testing the flow count instead of the qdisc kind skipped this request
++	 * for every nssfq_codel that left the count at its default, so
++	 * flow_queue_sz stayed zero and the allocation below went on to ask for
++	 * get_order(0) - BITS_PER_LONG minus PAGE_SHIFT, an order no allocator
++	 * can ever satisfy. Those qdiscs failed with -ENOMEM every time, and a
++	 * shaper tree whose default queue never attaches drops everything the
++	 * interface is asked to transmit.
+ 	 */
+-	if (!qopt->flows) {
++	if (!nss_codel_flow_count(sch, qopt)) {
+ 		return 0;
+ 	}
+ 
+@@ -253,7 +287,7 @@
+ 	struct tc_nsscodel_qopt *qopt;
+ 	struct nss_if_msg nim;
+ 	struct net_device *dev = qdisc_dev(sch);
+-	uint32_t order, sz = 0;
++	uint32_t order, flows, sz = 0;
+ 	bool is_fq_codel = (sch->ops == &nss_fq_codel_qdisc_ops);
+ 	struct nss_shaper_node_config *config;
+ 	bool free_flow_queue = true;
+@@ -273,12 +307,18 @@
+ 		return -EINVAL;
+ 	}
+ 
++	flows = nss_codel_flow_count(sch, qopt);
++
+ 	/*
+ 	 * If flow queues have already been allocated, then ensure the user does not
+ 	 * attempt to change the number of flows in a subsequent change command.
++	 *
++	 * This compares what was asked for both times. Comparing it against the
++	 * count in use would reject a change that repeated the original request
++	 * verbatim, whenever the allocation below had settled for fewer queues.
+ 	 */
+ 	if (q->flow_queue_mem) {
+-		if (q->flows != qopt->flows) {
++		if (q->flows_req != flows) {
+ 			nss_qdisc_warning("Change of flow queue count not allowed");
+ 			return -EINVAL;
+ 		}
+@@ -299,7 +339,7 @@
+ 	q->limit = qopt->limit;
+ 	q->interval = qopt->interval;
+ 	q->quantum = qopt->quantum;
+-	q->flows = qopt->flows;
++	q->flows_req = flows;
+ 	q->ecn = qopt->ecn;
+ 	q->set_default = qopt->set_default;
+ 
+@@ -316,27 +356,53 @@
+ 	 * has not been allocated previously (i.e. init time).
+ 	 */
+ 	if (is_fq_codel && !q->flow_queue_mem) {
++		if (!q->flow_queue_sz) {
++			nss_qdisc_warning("Firmware reported a zero flow queue size\n");
++			return -EINVAL;
++		}
++
+ 		/*
+-		 * Use the default flow queue count if value is not speficied by user.
++		 * The firmware addresses the flow queue array as one physically
++		 * contiguous block, so the whole thing has to come from a single
++		 * high-order allocation: at the default 1024 flows that is 128 KB,
++		 * order 5. Anything above PAGE_ALLOC_COSTLY_ORDER is failed rather
++		 * than compacted for, so on a router that has been forwarding for a
++		 * while this is refused - and it used to take the qdisc down with it.
++		 * That is not survivable here: a shaper tree whose default queue
++		 * never attaches drops every frame the interface is asked to
++		 * transmit, ARP and PPPoE discovery included, so one refused
++		 * allocation left the port silently off the air until the next
++		 * reboot. Ask the allocator to try harder, then halve the flow count
++		 * until it fits. Fewer hash buckets cost a little flow isolation; a
++		 * tree that cannot be built costs the link.
+ 		 */
+-		if (!q->flows) {
+-			q->flows = NSS_CODEL_DEFAULT_FQ_COUNT;
++		for (q->flows = flows; q->flows >= NSS_CODEL_MIN_FQ_COUNT; q->flows >>= 1) {
++			sz = q->flow_queue_sz * q->flows;
++			order = get_order(sz);
++
++			nss_qdisc_trace("Allocating %u bytes (%u pages) for flow qeueue\n", sz, 1 << order);
++
++			q->flow_queue_mem = __get_free_pages(GFP_KERNEL | __GFP_RETRY_MAYFAIL |
++					__GFP_NOWARN | __GFP_ZERO, order);
++			if (q->flow_queue_mem) {
++				break;
++			}
+ 		}
+ 
+-		sz = q->flow_queue_sz * q->flows;
+-		order = get_order(sz);
++		if (!q->flow_queue_mem) {
++			nss_qdisc_warning("Failed to allocate flow queue memory for %u flows\n",
++					flows);
++			return -ENOMEM;
++		}
+ 
+-		nss_qdisc_trace("Allocating %u bytes (%u pages) for flow qeueue\n", sz, 1 << order);
++		if (q->flows != flows) {
++			nss_qdisc_warning("Flow queue memory for %u flows unavailable, "
++					"shaping with %u\n", flows, q->flows);
++		}
+ 
+ 		nss_qdisc_info("Flows:%u Quantum:%u Ecn:%u\n",
+ 			q->flows, q->quantum, q->ecn);
+ 
+-		q->flow_queue_mem = __get_free_pages(GFP_KERNEL | __GFP_NOWARN | __GFP_ZERO, order);
+-		if (!q->flow_queue_mem) {
+-			nss_qdisc_warning("Failed to allocated flow queue memory\n");
+-			return -ENOMEM;
+-		}
+-
+ 		q->dma_mapped_mem = dma_map_single(nss_shaper_get_dev(), (void *)q->flow_queue_mem, sz, DMA_TO_DEVICE);
+ 		if(unlikely(dma_mapping_error(nss_shaper_get_dev(), q->dma_mapped_mem))) {
+ 			nss_qdisc_warning("DMA map failed for virtual address = %lu\n", q->flow_queue_mem);

@@ -1,0 +1,78 @@
+From: Julius Bairaktaris <julius@bairaktaris.de>
+Subject: [PATCH] igs: unwind firmware state when a redirect init fails
+
+nss_mirred_init() applies the IGS node and the nexthop to the source physical
+port with two synchronous messages, and only afterwards calls nss_ifb_bind(),
+which is what sets is_mapped. Either send failing returns -EINVAL with nothing
+undone.
+
+That is not recoverable later. Both undo paths, nss_ifb_reset_nexthop() and
+nss_ifb_clear_igs_node(), open with a test on is_mapped and return success
+having sent nothing when it is clear - and it is clear here, because bind never
+ran. A failed send is also not proof the firmware ignored the message: a timeout
+means only that no ACK was seen. So a redirect whose init timed out leaves a
+nexthop pointing at an IGS node on a physical port, with no host-side record of
+it and no way to take it back short of reloading the firmware. The port then
+looks perfectly healthy while its traffic goes to a node nothing feeds.
+
+Send the corresponding undo directly on both failure paths, bypassing the
+is_mapped gate that exists for the bound case. nss_ifb_clear_config_cb() has to
+tolerate a NULL app_data for that, since there is no ifb_info to update yet;
+it dereferenced it unconditionally, which would have faulted in softirq.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+---
+--- a/nss_qdisc/igs/nss_ifb.c
++++ b/nss_qdisc/igs/nss_ifb.c
+@@ -147,6 +147,18 @@
+ 	struct nss_ifb_info *ifb_info = (struct nss_ifb_info *)app_data;
+ 	bool ret;
+ 
++	/*
++	 * A CLEAR sent to unwind a half-applied mapping has no ifb_info to
++	 * update - there is no bound entry yet. Nothing to do but check the
++	 * response.
++	 */
++	if (!ifb_info) {
++		if (nim->cm.response != NSS_CMN_RESPONSE_ACK) {
++			nss_igs_error("Response error: %d\n", nim->cm.response);
++		}
++		return;
++	}
++
+ 	if (nim->cm.response != NSS_CMN_RESPONSE_ACK) {
+ 		nss_igs_error("Response error: %d\n", nim->cm.response);
+ 		return;
+--- a/nss_qdisc/igs/nss_mirred.c
++++ b/nss_qdisc/igs/nss_mirred.c
+@@ -191,6 +191,16 @@
+ 	 */
+ 	if (nss_ifb_config_msg_tx_sync(from_dev, ifb_num, NSS_IFB_SET_IGS_NODE, NULL) < 0) {
+ 		nss_igs_error("Sending config to %s dev failed\n", from_dev->name);
++
++		/*
++		 * A failure here is not proof the firmware ignored the message:
++		 * a timeout means only that no ACK was seen, and the node may
++		 * well be applied. is_mapped is set by nss_ifb_bind() below, so
++		 * from this point the gated undo helpers would return success
++		 * having sent nothing, and the node would sit on the physical
++		 * port until the firmware is reloaded. Undo it directly.
++		 */
++		nss_ifb_config_msg_tx(from_dev, ifb_num, NSS_IFB_CLEAR_IGS_NODE, NULL);
+ 		return -EINVAL;
+ 	}
+ 
+@@ -199,6 +209,13 @@
+ 	 */
+ 	if (nss_ifb_config_msg_tx_sync(from_dev, ifb_num, NSS_IFB_SET_NEXTHOP, NULL) < 0) {
+ 		nss_igs_error("Sending next hop config to %s dev failed\n", from_dev->name);
++
++		/*
++		 * Same reasoning, and the IGS node from the send above is
++		 * definitely applied, so take both back.
++		 */
++		nss_ifb_config_msg_tx(from_dev, ifb_num, NSS_IFB_RESET_NEXTHOP, NULL);
++		nss_ifb_config_msg_tx(from_dev, ifb_num, NSS_IFB_CLEAR_IGS_NODE, NULL);
+ 		return -EINVAL;
+ 	}
+ 

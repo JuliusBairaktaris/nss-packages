@@ -1,0 +1,90 @@
+nss_qdisc: bound the firmware stats count and the netlink traffic_id
+
+Two array walks driven by a value nobody checked.
+
+nss_qdisc_stats_sync_many_callback() iterates the shaper stats reply with
+
+	for (i = 0; i < nsnsm->count; i++)
+		nss_qdisc_stats_process_node_stats(nq, &nsnsm->stats_sync[i]);
+
+count is a uint16_t the firmware wrote and stats_sync[] is a flexible
+array. The struct carries a size field documented as "Total buffer size
+indicated by host" that the loop never reads, and the only upstream
+validation is nss_if_msg_handler()'s message-length check, computed from
+a union containing a zero-length array and so structurally independent of
+count. Records are 108 bytes, so a count of 0xffff walks ~7.1 MB past the
+PAGE_SIZE buffer nss_qdisc_stats_sync_msg_tx() sent - and any
+out-of-bounds qos_tag that hashes to a live qdisc turns those bytes into
+tc statistics output.
+
+Bound it by the buffer the host provided rather than by anything in the
+reply: the request copy's size is PAGE_SIZE, set where the message is
+built, and the record offset is fixed by the layout. Clamping keeps the
+records that did fit, which is what a truncated reply should yield.
+
+Note the reply cannot be bounded by cm.len here the way an ordinary
+message can: the request is initialised with the fixed
+sizeof(struct nss_if_shaper_configure), so cm.len describes no records at
+all and clamping to it would discard every statistic.
+
+nss_wred_change() then indexes q->nwtc[qopt->traffic_id], seven entries of
+24 bytes, with a __u32 straight off netlink - six 32-bit stores at a
+scaled attacker-chosen offset. Every sibling field in that function is
+already re-validated under a comment noting the parameters "might not
+come from tc utility"; traffic_id is the one field that reaches an array
+and the one that was left out. The macro is parenthesised at the same
+time - it is correct in a >= comparison only by operator precedence.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+--- a/nss_qdisc/nss_qdisc_stats.c
++++ b/nss_qdisc/nss_qdisc_stats.c
+@@ -462,6 +462,21 @@
+ 	wake_up(&nqsw->stats_resp_waitqueue);
+ 
+ 	if (nim->cm.response == NSS_CMN_RESPONSE_ACK) {
++		/*
++		 * count is a firmware field and stats_sync[] is a flexible
++		 * array, so bound it by the buffer the host provided - every
++		 * term below comes from our own request copy, not the reply.
++		 */
++		size_t hdr = (char *)nqsw_nsnsm->stats_sync - (char *)&nqsw->stats_sync_req_msg;
++		uint32_t max = (nqsw_nsnsm->size < hdr) ? 0 :
++			(nqsw_nsnsm->size - hdr) / sizeof(nqsw_nsnsm->stats_sync[0]);
++
++		if (nsnsm->count > max) {
++			nss_qdisc_warning("%px: stats sync count %u exceeds buffer capacity %u\n",
++					nq, nsnsm->count, max);
++			nsnsm->count = max;
++		}
++
+ 		for (i = 0; i < nsnsm->count; i++) {
+ 			nss_qdisc_stats_process_node_stats(nq, &nsnsm->stats_sync[i]);
+ 		}
+--- a/nss_qdisc/nss_wred.c
++++ b/nss_qdisc/nss_wred.c
+@@ -17,7 +17,7 @@
+ #include "nss_qdisc.h"
+ 
+ #define NSS_WRED_SUPPORT_TRAFFIC_CLASS 6
+-#define NSS_WRED_MAX_TRAFFIC_CLASS NSS_WRED_SUPPORT_TRAFFIC_CLASS+1
++#define NSS_WRED_MAX_TRAFFIC_CLASS (NSS_WRED_SUPPORT_TRAFFIC_CLASS + 1)
+ 
+ /*
+  * nsswred traffic class structure
+@@ -266,6 +266,15 @@
+ 			}
+ 			q->ecn = qopt->ecn;
+ 		}
++		/*
++		 * Every sibling field here is re-checked because the caller
++		 * need not be tc; traffic_id is the one that reaches an array.
++		 */
++		if (qopt->traffic_id >= NSS_WRED_MAX_TRAFFIC_CLASS) {
++			nss_qdisc_error("nsswred %x traffic_id %u out of range\n", sch->handle, qopt->traffic_id);
++			return -EINVAL;
++		}
++
+ 		q->nwtc[qopt->traffic_id].limit = qopt->limit;
+ 		q->nwtc[qopt->traffic_id].weight_mode_value = qopt->weight_mode_value;
+ 		q->nwtc[qopt->traffic_id].rap.min = qopt->rap.min;
