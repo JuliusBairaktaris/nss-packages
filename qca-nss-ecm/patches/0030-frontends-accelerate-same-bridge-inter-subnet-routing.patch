@@ -21,7 +21,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/frontends/cmn/ecm_ipv4.c
 +++ b/frontends/cmn/ecm_ipv4.c
-@@ -2096,6 +2096,40 @@ static unsigned int ecm_ipv4_bridge_post
+@@ -2098,6 +2098,40 @@ static unsigned int ecm_ipv4_bridge_post
  	 * Case 2: Routed trafffic would be handled by the INET post routing.
  	 */
  	if (!ecm_mac_addr_equal(skb_eth_hdr->h_source, bridge->dev_addr)) {
@@ -64,7 +64,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  		goto skip_ipv4_bridge_flow;
 --- a/frontends/cmn/ecm_ipv6.c
 +++ b/frontends/cmn/ecm_ipv6.c
-@@ -2202,6 +2202,33 @@ static unsigned int ecm_ipv6_bridge_post
+@@ -2204,6 +2204,33 @@ static unsigned int ecm_ipv6_bridge_post
  	 * Case 2: Routed trafffic would be handled by the INET post routing.
  	 */
  	if (!ecm_mac_addr_equal(skb_eth_hdr->h_source, bridge->dev_addr)) {

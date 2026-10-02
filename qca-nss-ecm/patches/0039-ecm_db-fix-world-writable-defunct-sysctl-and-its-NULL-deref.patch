@@ -30,7 +30,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/ecm_db/ecm_db_connection.c
 +++ b/ecm_db/ecm_db_connection.c
-@@ -5094,6 +5094,17 @@
+@@ -5094,6 +5094,17 @@ static bool ecm_db_connection_defunct_5t
  	}
  
  	/*
@@ -48,7 +48,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	 * IP version (ip_ver) field validation.
  	 */
  	option = strsep(&fields[ECM_DB_CONNECTION_DEFUNCT_BY_5TUPLE_OPTION_IP_VERSION], "=");
-@@ -5448,6 +5459,17 @@
+@@ -5448,6 +5459,17 @@ bool ecm_db_connection_defunct_5tuple_bu
  	}
  
  	/*
@@ -66,7 +66,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	 * IP version (ip_ver) field validation
  	 */
  	option = strsep(&fields[ECM_DB_CONNECTION_DEFUNCT_BY_5TUPLE_OPTION_IP_VERSION], "=");
-@@ -5629,7 +5651,7 @@
+@@ -5629,7 +5651,7 @@ static struct ctl_table ecm_db_connectio
  		.procname	= "defunct_by_5tuple_mask",
  		.data		= NULL,
  		.maxlen		= sizeof(int),

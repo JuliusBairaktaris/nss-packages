@@ -9,7 +9,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/frontends/ecm_front_end_common.c
 +++ b/frontends/ecm_front_end_common.c
-@@ -1357,7 +1357,7 @@ static int ecm_front_end_tcp_denied_port
+@@ -1661,7 +1661,7 @@ static int ecm_front_end_tcp_denied_port
   * ecm_front_end_unidir_accel_proc_handler()
   *	Per-direction acceleration sysctl handler.
   */

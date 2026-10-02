@@ -48,7 +48,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/frontends/include/ecm_front_end_types.h
 +++ b/frontends/include/ecm_front_end_types.h
-@@ -305,6 +305,7 @@ struct ecm_front_end_connection_instance
+@@ -306,6 +306,7 @@ struct ecm_front_end_connection_instance
  	bool destroy_fail_handle_pending;			/* Set while handling the connection destroy failure */
  	bool udp_flow_dir_accel;				/* If the UDP flow is accelerated in flow direction. */
  	bool udp_return_dir_accel;				/* If the UDP flow is accelerated in return direction. */
@@ -58,7 +58,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	atomic64_t ppe_accel_fail_reason;			/* PPE accel fail reason */
 --- a/frontends/nss/ecm_nss_ported_ipv4.c
 +++ b/frontends/nss/ecm_nss_ported_ipv4.c
-@@ -1398,10 +1398,22 @@ static void ecm_nss_ported_ipv4_connectio
+@@ -1398,10 +1398,22 @@ static void ecm_nss_ported_ipv4_connecti
  #else
  			if (tcp_be_liberal
  #endif
@@ -85,7 +85,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
 --- a/frontends/nss/ecm_nss_ported_ipv6.c
 +++ b/frontends/nss/ecm_nss_ported_ipv6.c
-@@ -1325,10 +1325,22 @@ static void ecm_nss_ported_ipv6_connectio
+@@ -1325,10 +1325,22 @@ static void ecm_nss_ported_ipv6_connecti
  #else
  			if (tcp_be_liberal
  #endif

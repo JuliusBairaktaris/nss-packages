@@ -5,7 +5,8 @@ kernel patchset, where it carries an internal priority from the
 WiFi driver into the PPE/SFE QoS offload rules. This tree runs on
 vanilla OpenWrt kernels which do not have the field, and its only
 consumers (the PPE and SFE rule QoS fields) do not apply to the NSS
-front-end, so read it as 0.
+front-end, so read it as 0, and drop
+ecm_front_end_common_update_int_pri(), which only writes it.
 
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 --- a/ecm_classifier_dscp.c
@@ -90,7 +91,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	prevalent_pr.process_actions = 0;
 --- a/frontends/cmn/ecm_non_ported_ipv4.c
 +++ b/frontends/cmn/ecm_non_ported_ipv4.c
-@@ -776,8 +776,8 @@ done:
+@@ -781,8 +781,8 @@ done:
  	prevalent_pr.drop = false;
  	prevalent_pr.flow_qos_tag = skb->priority;
  	prevalent_pr.return_qos_tag = skb->priority;
@@ -103,7 +104,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
 --- a/frontends/cmn/ecm_non_ported_ipv6.c
 +++ b/frontends/cmn/ecm_non_ported_ipv6.c
-@@ -658,8 +658,8 @@ done:
+@@ -663,8 +663,8 @@ done:
  	prevalent_pr.drop = false;
  	prevalent_pr.flow_qos_tag = skb->priority;
  	prevalent_pr.return_qos_tag = skb->priority;
@@ -116,7 +117,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
 --- a/frontends/cmn/ecm_ported_ipv4.c
 +++ b/frontends/cmn/ecm_ported_ipv4.c
-@@ -1034,16 +1034,16 @@ done:
+@@ -1039,33 +1039,16 @@ done:
  	if (ci->unidir_accel_en) {
  		if (sender == ECM_TRACKER_SENDER_TYPE_SRC) {
  			prevalent_pr.flow_qos_tag = skb->priority;
@@ -132,14 +133,31 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  		prevalent_pr.return_qos_tag = skb->priority;
 -		prevalent_pr.flow_int_pri = skb->int_pri;
 -		prevalent_pr.return_int_pri = skb->int_pri;
+-	}
+-
+-	/*
+-	 * Derive int_pri for this packet's direction from the prevalent qos_tag
+-	 * and write it into skb->int_pri.
+-	 */
+-	ecm_front_end_common_update_int_pri(ci, skb, sender, prevalent_pr.flow_qos_tag, prevalent_pr.return_qos_tag);
+-
+-	if (ci->unidir_accel_en) {
+-		if (sender == ECM_TRACKER_SENDER_TYPE_SRC) {
+-			prevalent_pr.flow_int_pri = skb->int_pri;
+-		} else {
+-			prevalent_pr.return_int_pri = skb->int_pri;
+-		}
+-	} else {
+-		prevalent_pr.flow_int_pri = skb->int_pri;
+-		prevalent_pr.return_int_pri = skb->int_pri;
 +		prevalent_pr.flow_int_pri = 0;	/* skb->int_pri requires QSDK kernel patches */
 +		prevalent_pr.return_int_pri = 0;	/* skb->int_pri requires QSDK kernel patches */
  	}
+ 
  	prevalent_pr.accel_mode = ECM_CLASSIFIER_ACCELERATION_MODE_ACCEL;
- 	prevalent_pr.timer_group = ci_orig_timer_group = ecm_db_connection_timer_group_get(ci);
 --- a/frontends/cmn/ecm_ported_ipv6.c
 +++ b/frontends/cmn/ecm_ported_ipv6.c
-@@ -1059,16 +1059,16 @@ done:
+@@ -1064,33 +1064,16 @@ done:
  	if (ci->unidir_accel_en) {
  		if (sender == ECM_TRACKER_SENDER_TYPE_SRC) {
  			prevalent_pr.flow_qos_tag = skb->priority;
@@ -155,14 +173,31 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  		prevalent_pr.return_qos_tag = skb->priority;
 -		prevalent_pr.flow_int_pri = skb->int_pri;
 -		prevalent_pr.return_int_pri = skb->int_pri;
+-	}
+-
+-	/*
+-	 * Derive int_pri for this packet's direction from the prevalent qos_tag
+-	 * and write it into skb->int_pri.
+-	 */
+-	ecm_front_end_common_update_int_pri(ci, skb, sender, prevalent_pr.flow_qos_tag, prevalent_pr.return_qos_tag);
+-
+-	if (ci->unidir_accel_en) {
+-		if (sender == ECM_TRACKER_SENDER_TYPE_SRC) {
+-			prevalent_pr.flow_int_pri = skb->int_pri;
+-		} else {
+-			prevalent_pr.return_int_pri = skb->int_pri;
+-		}
+-	} else {
+-		prevalent_pr.flow_int_pri = skb->int_pri;
+-		prevalent_pr.return_int_pri = skb->int_pri;
 +		prevalent_pr.flow_int_pri = 0;	/* skb->int_pri requires QSDK kernel patches */
 +		prevalent_pr.return_int_pri = 0;	/* skb->int_pri requires QSDK kernel patches */
  	}
+ 
  	prevalent_pr.accel_mode = ECM_CLASSIFIER_ACCELERATION_MODE_ACCEL;
- 	prevalent_pr.timer_group = ci_orig_timer_group = ecm_db_connection_timer_group_get(ci);
 --- a/frontends/ecm_front_end_common.c
 +++ b/frontends/ecm_front_end_common.c
-@@ -875,7 +875,7 @@ void ecm_front_end_tcp_set_dscp_ext(stru
+@@ -1179,7 +1179,7 @@ void ecm_front_end_tcp_set_dscp_ext(stru
  	if (dscpcte) {
  		if (sender == ECM_TRACKER_SENDER_TYPE_SRC) {
  			dscpcte->flow_priority = skb->priority;
@@ -171,7 +206,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  			dscpcte->flow_mark = skb->mark;
  			dscpcte->flow_dscp = iph->ds >> XT_DSCP_SHIFT;
  			dscpcte->flow_set_flags = NF_CT_DSCPREMARK_EXT_PRIO | NF_CT_DSCPREMARK_EXT_DSCP | NF_CT_DSCPREMARK_EXT_MARK;
-@@ -883,7 +883,7 @@ void ecm_front_end_tcp_set_dscp_ext(stru
+@@ -1187,7 +1187,7 @@ void ecm_front_end_tcp_set_dscp_ext(stru
  				    ct, sender, dscpcte->flow_priority, dscpcte->flow_int_pri, dscpcte->flow_dscp, dscpcte->flow_mark, dscpcte->flow_set_flags);
  		} else {
  			dscpcte->reply_priority =  skb->priority;
@@ -180,3 +215,56 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  			dscpcte->reply_mark =  skb->mark;
  			dscpcte->reply_dscp = iph->ds >> XT_DSCP_SHIFT;
  			dscpcte->return_set_flags = NF_CT_DSCPREMARK_EXT_PRIO | NF_CT_DSCPREMARK_EXT_DSCP | NF_CT_DSCPREMARK_EXT_MARK;
+@@ -2496,41 +2496,6 @@ uint8_t ecm_front_end_common_int_pri_get
+ #endif
+ }
+ 
+-/*
+- * ecm_front_end_common_update_int_pri()
+- *	Map int_pri with correct qos_tag for flow/return direction.
+- */
+-void ecm_front_end_common_update_int_pri(struct ecm_db_connection_instance *ci, struct sk_buff *skb,
+-		ecm_tracker_sender_type_t sender, uint32_t flow_qos_tag, uint32_t return_qos_tag)
+-{
+-	struct ecm_db_iface_instance *ifaces[ECM_DB_IFACE_HEIRARCHY_MAX];
+-	int32_t ifaces_first;
+-	int32_t egress_ifnum;
+-	uint32_t qos_tag;
+-
+-	if (sender == ECM_TRACKER_SENDER_TYPE_SRC) {
+-		/*
+-		 * Flow direction traffic egresses via the TO-side interface.
+-		 */
+-		ifaces_first = ecm_db_connection_interfaces_get_and_ref(ci, ifaces, ECM_DB_OBJ_DIR_TO);
+-		qos_tag = flow_qos_tag;
+-	} else {
+-		/*
+-		 * Return direction traffic egresses via the FROM-side interface.
+-		 */
+-		ifaces_first = ecm_db_connection_interfaces_get_and_ref(ci, ifaces, ECM_DB_OBJ_DIR_FROM);
+-		qos_tag = return_qos_tag;
+-	}
+-
+-	if (ifaces_first == ECM_DB_IFACE_HEIRARCHY_MAX) {
+-		return;
+-	}
+-
+-	egress_ifnum = ecm_db_iface_interface_identifier_get(ifaces[ifaces_first]);
+-	skb->int_pri = ecm_front_end_common_int_pri_get(egress_ifnum, qos_tag, skb->int_pri);
+-	ecm_db_connection_interfaces_deref(ifaces, ifaces_first);
+-}
+-
+ #ifdef ECM_FRONT_END_FSE_ENABLE
+ /*
+  * ecm_front_end_fse_info_get()
+--- a/frontends/include/ecm_front_end_common.h
++++ b/frontends/include/ecm_front_end_common.h
+@@ -531,8 +531,6 @@ bool ecm_front_end_check_tcp_denied_port
+ bool ecm_front_end_common_intf_qdisc_check(int32_t interface_num, bool *is_ppeq);
+ bool ecm_front_end_common_intf_ingress_qdisc_check(int32_t interface_num);
+ uint8_t ecm_front_end_common_int_pri_get(int32_t egress_ifnum, uint32_t qos_tag, uint8_t default_int_pri);
+-void ecm_front_end_common_update_int_pri(struct ecm_db_connection_instance *ci, struct sk_buff *skb,
+-		ecm_tracker_sender_type_t sender, uint32_t flow_qos_tag, uint32_t return_qos_tag);
+ #ifdef ECM_FRONT_END_PPE_QOS_ENABLE
+ bool ecm_front_end_common_check_if_vap(int32_t interface_num);
+ bool ecm_front_end_common_check_dl_vp_qdisc(int32_t interface_num);

@@ -32,10 +32,8 @@ multicast traffic drives.
 
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
-Index: qca-nss-ecm-14.0.2026.07.10~e978478f5dba749d412e144b8f3e7b152687d893/ecm_db/ecm_db_types.h
-===================================================================
---- qca-nss-ecm-14.0.2026.07.10~e978478f5dba749d412e144b8f3e7b152687d893.orig/ecm_db/ecm_db_types.h
-+++ qca-nss-ecm-14.0.2026.07.10~e978478f5dba749d412e144b8f3e7b152687d893/ecm_db/ecm_db_types.h
+--- a/ecm_db/ecm_db_types.h
++++ b/ecm_db/ecm_db_types.h
 @@ -481,7 +481,7 @@ static inline struct ecm_db_iface_instan
  {
  	unsigned long *heirarchy_instance = (unsigned long *)heirarchy_base;
@@ -45,11 +43,9 @@ Index: qca-nss-ecm-14.0.2026.07.10~e978478f5dba749d412e144b8f3e7b152687d893/ecm_
  	return (struct ecm_db_iface_instance *)(heirarchy_instance + (index * ECM_DB_IFACE_HEIRARCHY_MAX));
  }
  
-Index: qca-nss-ecm-14.0.2026.07.10~e978478f5dba749d412e144b8f3e7b152687d893/ecm_interface.c
-===================================================================
---- qca-nss-ecm-14.0.2026.07.10~e978478f5dba749d412e144b8f3e7b152687d893.orig/ecm_interface.c
-+++ qca-nss-ecm-14.0.2026.07.10~e978478f5dba749d412e144b8f3e7b152687d893/ecm_interface.c
-@@ -5587,7 +5587,7 @@ int32_t ecm_interface_multicast_heirarch
+--- a/ecm_interface.c
++++ b/ecm_interface.c
+@@ -5588,7 +5588,7 @@ int32_t ecm_interface_multicast_heirarch
  			return 0;
  		}
  

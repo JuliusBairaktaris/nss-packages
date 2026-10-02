@@ -200,7 +200,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  			/*
  			 * If we have not yet got an ethernet mac then take this one (very unlikely as mac should have been propagated to the slave (outer) device
-@@ -1085,14 +1102,31 @@ static void ecm_nss_non_ported_ipv4_conn
+@@ -1095,14 +1112,31 @@ static void ecm_nss_non_ported_ipv4_conn
  			}
  
  			/*

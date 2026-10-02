@@ -11,7 +11,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/frontends/ecm_front_end_common.c
 +++ b/frontends/ecm_front_end_common.c
-@@ -1443,7 +1443,6 @@ static struct ctl_table ecm_front_end_sy
+@@ -1747,7 +1747,6 @@ static struct ctl_table ecm_front_end_sy
  		.mode		= 0644,
  		.proc_handler	= proc_dointvec,
  	},

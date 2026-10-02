@@ -16,10 +16,8 @@ would silently turn on.
 
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
-Index: qca-nss-ecm-14.0.2026.07.10~e978478f5dba749d412e144b8f3e7b152687d893/ecm_sdx/ecm_sdx.c
-===================================================================
---- qca-nss-ecm-14.0.2026.07.10~e978478f5dba749d412e144b8f3e7b152687d893.orig/ecm_sdx/ecm_sdx.c
-+++ qca-nss-ecm-14.0.2026.07.10~e978478f5dba749d412e144b8f3e7b152687d893/ecm_sdx/ecm_sdx.c
+--- a/ecm_sdx/ecm_sdx.c
++++ b/ecm_sdx/ecm_sdx.c
 @@ -194,28 +194,28 @@ static struct ctl_table ecm_sdx_sysctl_t
  		.procname	= "stats",
  		.data		= NULL,
@@ -53,10 +51,8 @@ Index: qca-nss-ecm-14.0.2026.07.10~e978478f5dba749d412e144b8f3e7b152687d893/ecm_
  		.proc_handler	= &ecm_sdx_lan_prefix_handler,
  	},
  };
-Index: qca-nss-ecm-14.0.2026.07.10~e978478f5dba749d412e144b8f3e7b152687d893/examples/ecm_sdx_pcc.c
-===================================================================
---- qca-nss-ecm-14.0.2026.07.10~e978478f5dba749d412e144b8f3e7b152687d893.orig/examples/ecm_sdx_pcc.c
-+++ qca-nss-ecm-14.0.2026.07.10~e978478f5dba749d412e144b8f3e7b152687d893/examples/ecm_sdx_pcc.c
+--- a/examples/ecm_sdx_pcc.c
++++ b/examples/ecm_sdx_pcc.c
 @@ -930,7 +930,7 @@ static struct ctl_table ecm_sdx_pcc_sysc
  		.procname		= "ecm_sdx_pcc_rule",
  		.data			= &ecm_sdx_pcc_rules,
