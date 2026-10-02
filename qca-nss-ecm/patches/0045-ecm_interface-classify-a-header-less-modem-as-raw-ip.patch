@@ -21,9 +21,38 @@ apart: a translator has none.
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 Assisted-by: Claude Opus 5 (1M context)
 ---
+--- a/ecm_interface.c
++++ b/ecm_interface.c
+@@ -4467,7 +4467,7 @@ identifier_update:
+ 	/*
+ 	 * RAWIP type?
+ 	 */
+-	if (dev_type == ARPHRD_RAWIP) {
++	if (ecm_interface_is_rawip(dev)) {
+ 		/*
+ 		 * Copy netdev address to the type info.
+ 		 */
+@@ -6710,7 +6710,7 @@ lag_success:
+ 			 * RAWIP?
+ 			 * If it is RAWIP type, there is no next device.
+ 			 */
+-			if (dest_dev_type == ARPHRD_RAWIP) {
++			if (ecm_interface_is_rawip(dest_dev)) {
+ 				DEBUG_TRACE("%px: Net device: %px is RAWIP type: %d\n", feci, dest_dev, dest_dev_type);
+ 				break;
+ 			}
 --- a/ecm_interface.h
 +++ b/ecm_interface.h
-@@ -35,6 +35,26 @@
+@@ -6,6 +6,8 @@
+  **************************************************************************
+  */
+ 
++#include <linux/if_arp.h>
++
+ #ifdef ECM_INTERFACE_VXLAN_ENABLE
+ #include <net/vxlan.h>
+ #endif
+@@ -35,6 +37,26 @@ struct ecm_interface_route {
  #define ECM_INTERFACE_LOOPBACK_DEV_INDEX 1
  
  /*
@@ -50,29 +79,9 @@ Assisted-by: Claude Opus 5 (1M context)
   * IPSec Core and Interface Definition
   */
  #define ECM_INTERFACE_IPSEC_DEFAULT_CORE 0x2
---- a/ecm_interface.c
-+++ b/ecm_interface.c
-@@ -4495,7 +4495,7 @@
- 	/*
- 	 * RAWIP type?
- 	 */
--	if (dev_type == ARPHRD_RAWIP) {
-+	if (ecm_interface_is_rawip(dev)) {
- 		/*
- 		 * Copy netdev address to the type info.
- 		 */
-@@ -6738,7 +6738,7 @@
- 			 * RAWIP?
- 			 * If it is RAWIP type, there is no next device.
- 			 */
--			if (dest_dev_type == ARPHRD_RAWIP) {
-+			if (ecm_interface_is_rawip(dest_dev)) {
- 				DEBUG_TRACE("%px: Net device: %px is RAWIP type: %d\n", feci, dest_dev, dest_dev_type);
- 				break;
- 			}
 --- a/frontends/cmn/ecm_ipv4.c
 +++ b/frontends/cmn/ecm_ipv4.c
-@@ -297,7 +297,7 @@
+@@ -296,7 +296,7 @@ struct ecm_db_node_instance *ecm_ipv4_no
  			/*
  			 * If the local dev is Rmnet device, no need to do a MAC lookup.
  			 */
@@ -83,7 +92,7 @@ Assisted-by: Claude Opus 5 (1M context)
  				break;
 --- a/frontends/cmn/ecm_ipv6.c
 +++ b/frontends/cmn/ecm_ipv6.c
-@@ -295,7 +295,7 @@
+@@ -294,7 +294,7 @@ struct ecm_db_node_instance *ecm_ipv6_no
  			/*
  			 * If the local dev is Rmnet device, no need to do a MAC lookup.
  			 */
@@ -94,7 +103,7 @@ Assisted-by: Claude Opus 5 (1M context)
  				break;
 --- a/frontends/nss/ecm_nss_common.h
 +++ b/frontends/nss/ecm_nss_common.h
-@@ -74,7 +74,7 @@
+@@ -74,7 +74,7 @@ static inline int32_t ecm_nss_common_get
  	}
  
  #ifdef ECM_INTERFACE_RAWIP_ENABLE

@@ -9,16 +9,10 @@ instead or relying on a downstream api not present upstream.
 
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 ---
- frontends/nss/ecm_nss_ipv4.c | 3 ++-
- frontends/nss/ecm_nss_ipv6.c | 3 ++-
- frontends/sfe/ecm_sfe_ipv4.c | 3 ++-
- frontends/sfe/ecm_sfe_ipv6.c | 3 ++-
- 4 files changed, 8 insertions(+), 4 deletions(-)
-
 --- a/frontends/nss/ecm_nss_ipv4.c
 +++ b/frontends/nss/ecm_nss_ipv4.c
-@@ -598,7 +598,8 @@ sync_conntrack:
- #else
+@@ -582,7 +582,8 @@ sync_conntrack:
+ 				set_bit(IPS_ASSURED_BIT, &ct->status);
  				timeouts = nf_ct_timeout_lookup(ct);
  				if (!timeouts) {
 -					timeouts = udp_get_timeouts(nf_ct_net(ct));
@@ -29,8 +23,8 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  				spin_lock_bh(&ct->lock);
 --- a/frontends/nss/ecm_nss_ipv6.c
 +++ b/frontends/nss/ecm_nss_ipv6.c
-@@ -575,7 +575,8 @@ sync_conntrack:
- #else
+@@ -559,7 +559,8 @@ sync_conntrack:
+ 				unsigned int *timeouts;
  				timeouts = nf_ct_timeout_lookup(ct);
  				if (!timeouts) {
 -					timeouts = udp_get_timeouts(nf_ct_net(ct));

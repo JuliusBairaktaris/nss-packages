@@ -24,20 +24,6 @@ the IPv4 sibling. Fix each by mirroring the IPv4 code:
 
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
---- a/frontends/nss/ecm_nss_multicast_ipv6.c
-+++ b/frontends/nss/ecm_nss_multicast_ipv6.c
-@@ -1002,9 +1002,10 @@ static void ecm_nss_multicast_ipv6_conne
- 			rule_invalid = true;
- 			DEBUG_TRACE("%px: VLAN - unsupported\n", feci);
- #endif
-+			break;
- 		case ECM_DB_IFACE_TYPE_DSA:
- #ifdef ECM_INTERFACE_DSA_ENABLE
--			struct ecm_db_interface_info_vlan vlan_info;
-+			struct ecm_db_interface_info_vlan dsa_info;
- 
- 			DEBUG_TRACE("%px: DSA\n", feci);
- 			if (interface_type_counts[ECM_DB_IFACE_TYPE_VLAN] > 0) {
 --- a/frontends/cmn/ecm_multicast_ipv6.c
 +++ b/frontends/cmn/ecm_multicast_ipv6.c
 @@ -187,7 +187,7 @@ static void ecm_multicast_ipv6_connectio
@@ -61,3 +47,17 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  #ifdef ECM_MCAST_LINUX_SNOOPER_SUPPORT
  	rcu_read_lock();
+--- a/frontends/nss/ecm_nss_multicast_ipv6.c
++++ b/frontends/nss/ecm_nss_multicast_ipv6.c
+@@ -1002,9 +1002,10 @@ static void ecm_nss_multicast_ipv6_conne
+ 			rule_invalid = true;
+ 			DEBUG_TRACE("%px: VLAN - unsupported\n", feci);
+ #endif
++			break;
+ 		case ECM_DB_IFACE_TYPE_DSA:
+ #ifdef ECM_INTERFACE_DSA_ENABLE
+-			struct ecm_db_interface_info_vlan vlan_info;
++			struct ecm_db_interface_info_vlan dsa_info;
+ 
+ 			DEBUG_TRACE("%px: DSA\n", feci);
+ 			if (interface_type_counts[ECM_DB_IFACE_TYPE_VLAN] > 0) {

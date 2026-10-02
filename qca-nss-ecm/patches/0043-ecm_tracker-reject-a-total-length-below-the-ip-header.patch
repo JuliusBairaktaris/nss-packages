@@ -27,7 +27,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/ecm_tracker.c
 +++ b/ecm_tracker.c
-@@ -465,6 +465,10 @@
+@@ -465,6 +465,10 @@ version_check_done:
  			DEBUG_WARN("%px: v4 invalid total len: %u skb len: %u\n", skb, ip_hdr->total_length, skb->len);
  			return false;
  		}

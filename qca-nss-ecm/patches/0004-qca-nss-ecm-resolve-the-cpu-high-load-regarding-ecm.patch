@@ -24,13 +24,9 @@ the patch changes this to interruptible sleep function.
 
 Signed-off-by: Dirk Buchwalder buchwalder@posteo.de
 ---
- frontends/nss/ecm_nss_ipv4.c | 4 ++--
- frontends/nss/ecm_nss_ipv6.c | 4 ++--
- 2 files changed, 4 insertions(+), 4 deletions(-)
-
 --- a/frontends/nss/ecm_nss_ipv4.c
 +++ b/frontends/nss/ecm_nss_ipv4.c
-@@ -688,7 +688,7 @@ static void ecm_nss_ipv4_stats_sync_req_
+@@ -671,7 +671,7 @@ static void ecm_nss_ipv4_stats_sync_req_
  	}
  	spin_unlock_bh(&ecm_nss_ipv4_lock);
  
@@ -39,7 +35,7 @@ Signed-off-by: Dirk Buchwalder buchwalder@posteo.de
  
  	/*
  	 * If index is 0, we are starting a new round, but if we still have time remain
-@@ -702,7 +702,7 @@ static void ecm_nss_ipv4_stats_sync_req_
+@@ -685,7 +685,7 @@ static void ecm_nss_ipv4_stats_sync_req_
  		}
  
  		if (time_after(ecm_nss_ipv4_next_req_time, current_jiffies)) {
@@ -50,7 +46,7 @@ Signed-off-by: Dirk Buchwalder buchwalder@posteo.de
  		ecm_nss_ipv4_next_req_time = ecm_nss_ipv4_roll_check_jiffies + ECM_NSS_IPV4_STATS_SYNC_PERIOD;
 --- a/frontends/nss/ecm_nss_ipv6.c
 +++ b/frontends/nss/ecm_nss_ipv6.c
-@@ -664,7 +664,7 @@ static void ecm_nss_ipv6_stats_sync_req_
+@@ -647,7 +647,7 @@ static void ecm_nss_ipv6_stats_sync_req_
  	}
  	spin_unlock_bh(&ecm_nss_ipv6_lock);
  
@@ -59,7 +55,7 @@ Signed-off-by: Dirk Buchwalder buchwalder@posteo.de
  
  	/*
  	 * If index is 0, we are starting a new round, but if we still have time remain
-@@ -678,7 +678,7 @@ static void ecm_nss_ipv6_stats_sync_req_
+@@ -661,7 +661,7 @@ static void ecm_nss_ipv6_stats_sync_req_
  		}
  
  		if (time_after(ecm_nss_ipv6_next_req_time, current_jiffies)) {
