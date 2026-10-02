@@ -23,7 +23,7 @@ page.
 | `qca-mcs` | [lklm/qca-mcs](https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-mcs) | `NHSS.QSDK.14.0.r9`, `063a467` |
 | `qca-nss-ecm` | [lklm/qca-nss-ecm](https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-nss-ecm) | `win.nss.1.0.r39`, `7894b76` |
 | `qca-nss-clients` | [lklm/nss-clients](https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-clients) | `NHSS.QSDK.12.5.5`, `51be82d` |
-| `nss-userspace-oss` | [nss-userspace](https://git.codelinaro.org/clo/qsdk/oss/nss-userspace) | `NHSS.RDK.14.0.r4`, `9584ff2` |
+| `nss-userspace-oss` | [nss-userspace](https://git.codelinaro.org/clo/qsdk/oss/nss-userspace) | `win.nss.1.0.r39`, `dc142b3` |
 | `nss-firmware` | [qosmio/qca-sdk-nss-fw](https://github.com/qosmio/qca-sdk-nss-fw) | 12.5 release 210, or 11.4.0.5 release 6 |
 | `sqm-scripts-nss` | local | `nss-edma.qos` queue setup for SQM |
 
