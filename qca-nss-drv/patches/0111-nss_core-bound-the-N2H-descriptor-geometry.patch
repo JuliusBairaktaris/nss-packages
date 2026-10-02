@@ -58,7 +58,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/nss_core.c
 +++ b/nss_core.c
-@@ -415,11 +415,23 @@
+@@ -415,11 +415,23 @@ void nss_core_handle_nss_status_pkt(stru
  	nss_core_rx_callback_t cb;
  	void *app_data;
  	uint16_t nss_if;
@@ -82,7 +82,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	}
  
  	/*
-@@ -1043,6 +1055,23 @@
+@@ -1043,6 +1055,23 @@ static inline void nss_core_rx_pbuf(stru
  		nss_ctx = (struct nss_ctx_instance *)&nss_top_main.nss[core_id - 1];
  	}
  
@@ -106,7 +106,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	switch (buffer_type) {
  	case N2H_BUFFER_PACKET:
  		nss_core_handle_buffer_pkt(nss_ctx, interface_num, nbuf, napi, desc->bit_flags, qid, desc->service_code);
-@@ -1135,7 +1164,19 @@
+@@ -1135,7 +1164,19 @@ static inline bool nss_core_handle_nr_fr
  	uint16_t payload_offs = desc->payload_offs;
  	uint16_t bit_flags = desc->bit_flags;
  
@@ -127,7 +127,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  	dma_unmap_page(nss_ctx->dev, (desc->buffer + desc->payload_offs), desc->payload_len, DMA_FROM_DEVICE);
  
-@@ -1251,6 +1292,18 @@
+@@ -1251,6 +1292,18 @@ static inline bool nss_core_handle_nr_fr
  	 * Our page is safe although we are freeing it because we
  	 * just took a reference to it.
  	 */
@@ -146,7 +146,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	skb_add_rx_frag(jumbo_start, skb_shinfo(jumbo_start)->nr_frags, skb_frag_page(&skb_shinfo(nbuf)->frags[0]), payload_offs, payload_len, PAGE_SIZE);
  	skb_frag_ref(jumbo_start, skb_shinfo(jumbo_start)->nr_frags - 1);
  	dev_kfree_skb_any(nbuf);
-@@ -1300,6 +1353,21 @@
+@@ -1300,6 +1353,21 @@ static inline bool nss_core_handle_linea
  	struct sk_buff *tail = *tail_ptr;
  
  	/*

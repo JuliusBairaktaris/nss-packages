@@ -2,10 +2,8 @@ nss-drv-add-support-for-kernel-6.12
 
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_core.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_core.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_core.c
+--- a/nss_core.c
++++ b/nss_core.c
 @@ -38,6 +38,9 @@
  #endif
  #endif
@@ -36,10 +34,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  #error "Check skb recycle code in this file to match Linux version"
  #endif
  
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/Makefile
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/Makefile
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/Makefile
+--- a/Makefile
++++ b/Makefile
 @@ -630,6 +630,8 @@ qca-nss-drv-objs += \
  ccflags-y += -DNSS_FREQ_SCALE_SUPPORT=1
  endif
@@ -49,10 +45,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/Make
  ccflags-y += $(NSS_CCFLAGS)
  
  export NSS_CCFLAGS
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_init.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_init.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_init.c
+--- a/nss_init.c
++++ b/nss_init.c
 @@ -123,10 +123,17 @@ static inline int nss_probe(struct platf
   * nss_remove()
   *	HLOS device remove callback
@@ -199,10 +193,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  };
  
  #if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0))
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_stats.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_stats.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_stats.c
+--- a/nss_stats.c
++++ b/nss_stats.c
 @@ -70,7 +70,7 @@ static size_t nss_stats_spacing(uint64_t
   * nss_stats_nonzero_handler()
   *	Handler to take nonzero stats print configuration.
@@ -249,10 +241,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  		for (j = 0; node_lwr[j] != '\0' && j < NSS_STATS_NODE_NAME_MAX; j++) {
  			node_lwr[j] = tolower(node_lwr[j]);
  		}
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_tunipip6_stats.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_tunipip6_stats.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_tunipip6_stats.c
+--- a/nss_tunipip6_stats.c
++++ b/nss_tunipip6_stats.c
 @@ -17,6 +17,10 @@
   **************************************************************************
   */
@@ -264,10 +254,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  #include "nss_core.h"
  #include "nss_tunipip6.h"
  #include "nss_stats.h"
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/compat.h
-===================================================================
 --- /dev/null
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/compat.h
++++ b/compat.h
 @@ -0,0 +1,14 @@
 +// compat.h
 +#ifndef _COMPAT_H
@@ -283,10 +271,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/comp
 +#endif
 +
 +#endif /* _COMPAT_H */
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_c2c_tx.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_c2c_tx.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_c2c_tx.c
+--- a/nss_c2c_tx.c
++++ b/nss_c2c_tx.c
 @@ -284,7 +284,7 @@ EXPORT_SYMBOL(nss_c2c_tx_msg_init);
   * nss_c2c_tx_performance_test_handler()
   *	Handles the performance test.
@@ -306,10 +292,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  };
  
  static struct ctl_table_header *nss_c2c_tx_header;
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_dma.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_dma.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_dma.c
+--- a/nss_dma.c
++++ b/nss_dma.c
 @@ -285,7 +285,7 @@ EXPORT_SYMBOL(nss_dma_get_context);
   * nss_dma_test_handler()
   *	Handles the performance test.
@@ -329,10 +313,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  };
  
  #if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0))
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_ipv4.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_ipv4.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_ipv4.c
+--- a/nss_ipv4.c
++++ b/nss_ipv4.c
 @@ -591,7 +591,7 @@ void nss_ipv4_free_conn_tables(void)
   * nss_ipv4_accel_mode_cfg_handler()
   *	Configure acceleration mode for IPv4
@@ -361,10 +343,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  };
  
  static struct ctl_table_header *nss_ipv4_header;
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_ipv6.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_ipv6.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_ipv6.c
+--- a/nss_ipv6.c
++++ b/nss_ipv6.c
 @@ -595,7 +595,7 @@ void nss_ipv6_free_conn_tables(void)
   * nss_ipv6_accel_mode_cfg_handler()
   *	Configure acceleration mode for IPv6
@@ -393,10 +373,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  };
  
  static struct ctl_table_header *nss_ipv6_header;
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_log.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_log.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_log.c
+--- a/nss_log.c
++++ b/nss_log.c
 @@ -524,7 +524,7 @@ fail:
   * nss_logbuffer_handler()
   *	Enable NSS debug output
@@ -406,10 +384,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  {
  	int ret;
  	int core_status;
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_n2h.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_n2h.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_n2h.c
+--- a/nss_n2h.c
++++ b/nss_n2h.c
 @@ -357,7 +357,7 @@ static int nss_n2h_get_paged_payload_inf
   * nss_n2h_set_empty_buf_pool()
   *	Sets empty pool buffer
@@ -656,10 +632,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  };
  
  
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_ppe_vp.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_ppe_vp.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_ppe_vp.c
+--- a/nss_ppe_vp.c
++++ b/nss_ppe_vp.c
 @@ -215,7 +215,7 @@ static void nss_ppe_vp_callback(void *ap
   * Since ath0 has only one type i.e. ath0 is NSS_DYNAMIC_INTERFACE_TYPE_VAP, the above command can be rewritten as
   * echo ath0 > /proc/sys/nss/ppe_vp/create => Here 6 can be ignored.
@@ -697,10 +671,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  };
  
  static struct ctl_table_header *nss_ppe_vp_procfs_header;
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_pppoe.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_pppoe.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_pppoe.c
+--- a/nss_pppoe.c
++++ b/nss_pppoe.c
 @@ -203,7 +203,7 @@ static void nss_pppoe_handler(struct nss
   * nss_pppoe_br_accel_mode_handler()
   *	Enable/disable pppoe bridge acceleration in NSS
@@ -720,10 +692,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  };
  
  static struct ctl_table_header *nss_pppoe_header;
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_project.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_project.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_project.c
+--- a/nss_project.c
++++ b/nss_project.c
 @@ -235,7 +235,7 @@ static void nss_project_msg_handler(stru
   * Uses proc_dointvec to process data. For a write operation, also sends worker
   * thread stats enable messages containing the new value to each NSS core.
@@ -743,10 +713,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  };
  
  #if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0))
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_rps.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_rps.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_rps.c
+--- a/nss_rps.c
++++ b/nss_rps.c
 @@ -404,7 +404,7 @@ static nss_tx_status_t nss_rps_pri_map_c
   * nss_rps_cfg_handler()
   *	Enable NSS RPS.
@@ -784,10 +752,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  };
  
  
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_core.h
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_core.h
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_core.h
+--- a/nss_core.h
++++ b/nss_core.h
 @@ -1036,7 +1036,7 @@ extern void nss_stats_clean(void);
   */
  extern void nss_log_init(void);
@@ -797,10 +763,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  
  /*
   * APIs to set jumbo_mru & paged_mode
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_dscp_map.h
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_dscp_map.h
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_dscp_map.h
+--- a/nss_dscp_map.h
++++ b/nss_dscp_map.h
 @@ -46,7 +46,7 @@ struct nss_dscp_map_parse {
   * nss_dscp_map_print()
   *	Sysctl handler for printing dscp/pri mapping.
@@ -819,10 +783,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  				loff_t *ppos, struct nss_dscp_map_parse *out)
  {
  	int count;
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_n2h_stats.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_n2h_stats.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_n2h_stats.c
+--- a/nss_n2h_stats.c
++++ b/nss_n2h_stats.c
 @@ -46,6 +46,7 @@ static ssize_t nss_n2h_stats_read(struct
  	size_t size_wr = 0;
  	ssize_t bytes_read = 0;

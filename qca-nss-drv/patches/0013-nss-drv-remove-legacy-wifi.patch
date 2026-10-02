@@ -4,7 +4,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/Makefile
 +++ b/Makefile
-@@ -350,10 +350,17 @@ endif
+@@ -352,10 +352,17 @@ endif
  
  ifneq "$(NSS_DRV_WIFIOFFLOAD_ENABLE)" "n"
  ccflags-y += -DNSS_DRV_WIFIOFFLOAD_ENABLE

@@ -48,7 +48,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	struct nss_platform_data * (*of_get_pdata)(struct platform_device *pdev);
 --- a/nss_hal/ipq807x/nss_hal_pvt.c
 +++ b/nss_hal/ipq807x/nss_hal_pvt.c
-@@ -367,6 +367,37 @@
+@@ -367,6 +367,37 @@ static int __nss_hal_core_reset(struct p
  }
  
  /*
@@ -86,7 +86,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
   * __nss_hal_debug_enable()
   *	Enable NSS debug
   */
-@@ -794,6 +825,7 @@
+@@ -794,6 +825,7 @@ bool __nss_hal_init_utcm_shared(struct n
  struct nss_hal_ops nss_hal_ipq807x_ops = {
  	.common_reset = __nss_hal_common_reset,
  	.core_reset = __nss_hal_core_reset,
@@ -96,7 +96,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	.debug_enable = __nss_hal_debug_enable,
 --- a/nss_hal/nss_hal.c
 +++ b/nss_hal/nss_hal.c
-@@ -895,6 +895,43 @@
+@@ -840,6 +840,43 @@ int nss_hal_remove(struct platform_devic
  	int i;
  
  	/*

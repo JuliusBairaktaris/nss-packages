@@ -19,10 +19,8 @@ inventing one.
 
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_shaper.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_shaper.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_shaper.c
+--- a/nss_shaper.c
++++ b/nss_shaper.c
 @@ -123,6 +123,15 @@ void nss_shaper_unregister_shaper_bounce
  	}
  

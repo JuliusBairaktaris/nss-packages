@@ -4,7 +4,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/nss_core.c
 +++ b/nss_core.c
-@@ -2278,12 +2278,16 @@ static void nss_core_handle_cause_nonque
+@@ -2284,12 +2284,16 @@ static void nss_core_handle_cause_nonque
  	 * of processor will prevent any excessive penalties.
  	 */
  	if (unlikely(nss_ctx->state == NSS_CORE_STATE_UNINITIALIZED)) {

@@ -40,10 +40,9 @@ work while it is being destroyed.
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 ---
-diff -ruN a/nss_core.h b/nss_core.h
 --- a/nss_core.h
 +++ b/nss_core.h
-@@ -1055,6 +1055,7 @@
+@@ -1055,6 +1055,7 @@ extern uint32_t nss_core_get_min_reuse(s
   * APIs for coredump
   */
  extern void nss_coredump_notify_register(void);
@@ -51,10 +50,9 @@ diff -ruN a/nss_core.h b/nss_core.h
  extern void nss_fw_coredump_notify(struct nss_ctx_instance *nss_own, int intr);
  extern int nss_coredump_init_delay_work(void);
  
-diff -ruN a/nss_coredump.c b/nss_coredump.c
 --- a/nss_coredump.c
 +++ b/nss_coredump.c
-@@ -134,6 +134,24 @@
+@@ -134,6 +134,24 @@ void nss_coredump_notify_register(void)
  }
  
  /*
@@ -79,10 +77,9 @@ diff -ruN a/nss_coredump.c b/nss_coredump.c
   * nss_fw_coredump_notify()
   *	handler for coredump notification from NSS FW
   */
-diff -ruN a/nss_init.c b/nss_init.c
 --- a/nss_init.c
 +++ b/nss_init.c
-@@ -1029,6 +1029,11 @@
+@@ -1029,6 +1029,11 @@ static void __exit nss_cleanup(void)
  	nss_ipv6_free_conn_tables();
  #endif
  
@@ -94,7 +91,7 @@ diff -ruN a/nss_init.c b/nss_init.c
  	nss_project_unregister_sysctl();
  
  #ifdef NSS_DATA_PLANE_GENERIC_SUPPORT
-@@ -1047,6 +1052,19 @@
+@@ -1047,6 +1052,19 @@ static void __exit nss_cleanup(void)
  #endif
  
  	platform_driver_unregister(&nss_driver);
@@ -114,10 +111,9 @@ diff -ruN a/nss_init.c b/nss_init.c
  }
  
  module_init(nss_init);
-diff -ruN a/nss_stats.c b/nss_stats.c
 --- a/nss_stats.c
 +++ b/nss_stats.c
-@@ -135,6 +135,18 @@
+@@ -135,6 +135,18 @@ void nss_stats_register_sysctl(void)
  }
  
  /*
@@ -136,10 +132,9 @@ diff -ruN a/nss_stats.c b/nss_stats.c
   * nss_stats_open()
   *	Opens stats file.
   */
-diff -ruN a/nss_stats.h b/nss_stats.h
 --- a/nss_stats.h
 +++ b/nss_stats.h
-@@ -69,6 +69,7 @@
+@@ -69,6 +69,7 @@ struct nss_stats_info {
  };
  
  extern void nss_stats_register_sysctl(void);

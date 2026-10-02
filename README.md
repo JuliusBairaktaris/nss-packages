@@ -17,7 +17,7 @@ page.
 
 | Package | Source | Version |
 |---|---|---|
-| `qca-nss-drv` | [lklm/nss-drv](https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-drv) | `NHSS.QSDK.14.0.r9`, `d7ef98b` |
+| `qca-nss-drv` | [lklm/nss-drv](https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-drv) | `win.nss.1.0.r39`, `705629d` |
 | `qca-mcs` | [lklm/qca-mcs](https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-mcs) | `NHSS.QSDK.14.0.r9`, `063a467` |
 | `qca-nss-ecm` | [lklm/qca-nss-ecm](https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-nss-ecm) | `NHSS.QSDK.14.0.r9-00040-O`, `5997ffd` |
 | `qca-nss-clients` | [lklm/nss-clients](https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-clients) | `NHSS.QSDK.12.5.5`, `51be82d` |

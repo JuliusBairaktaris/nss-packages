@@ -67,11 +67,9 @@ already up.
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 Assisted-by: Claude Opus 5 (1M context)
 ---
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_core.h
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_core.h
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_core.h
-@@ -1077,6 +1077,15 @@ extern void nss_ppe_init(void);
+--- a/nss_core.h
++++ b/nss_core.h
+@@ -1078,6 +1078,15 @@ extern void nss_ppe_init(void);
  extern void nss_ppe_free(void);
  
  /*
@@ -87,10 +85,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
   * APIs for N2H
   */
  extern nss_tx_status_t nss_n2h_cfg_empty_pool_size(struct nss_ctx_instance *nss_ctx, uint32_t pool_sz);
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_init.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_init.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_init.c
+--- a/nss_init.c
++++ b/nss_init.c
 @@ -965,6 +965,13 @@ nss_info("Init NSS driver");
  	nss_wifi_mesh_init();
  #endif
@@ -119,10 +115,8 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  #if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0))
  	if (nss_dev_header)
  		unregister_sysctl_table(nss_dev_header);
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_rmnet_rx.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_rmnet_rx.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_rmnet_rx.c
+--- a/nss_rmnet_rx.c
++++ b/nss_rmnet_rx.c
 @@ -24,6 +24,7 @@
  #include "nss_tx_rx_common.h"
  #include "nss_rmnet_rx_stats.h"
@@ -515,11 +509,9 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
 +	}
 +	rtnl_unlock();
 +}
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_core.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_core.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_core.c
-@@ -1857,6 +1857,10 @@ static void nss_core_init_nss(struct nss
+--- a/nss_core.c
++++ b/nss_core.c
+@@ -1863,6 +1863,10 @@ static void nss_core_init_nss(struct nss
  	nss_ctx->state = NSS_CORE_STATE_INITIALIZED;
  	spin_unlock_bh(&nss_top->lock);
  

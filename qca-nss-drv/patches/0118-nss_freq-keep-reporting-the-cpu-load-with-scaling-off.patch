@@ -16,10 +16,8 @@ turn scaling back on.
 Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 ---
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_init.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_init.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_init.c
+--- a/nss_init.c
++++ b/nss_init.c
 @@ -231,6 +231,7 @@ static int nss_current_freq_handler(comp
  	nss_cmd_buf.auto_scale = 0;
  	nss_runtime_samples.freq_scale_ready = 0;

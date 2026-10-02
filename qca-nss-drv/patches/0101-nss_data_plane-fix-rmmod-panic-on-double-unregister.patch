@@ -21,7 +21,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/nss_data_plane/nss_data_plane.c
 +++ b/nss_data_plane/nss_data_plane.c
-@@ -347,7 +347,14 @@
+@@ -347,7 +347,14 @@ static void __nss_data_plane_unregister(
  	for (core = 0; core < nss_top_main.num_nss; core++) {
  		for (i = NSS_DP_START_IFNUM; i < NSS_DP_MAX_INTERFACES; i++) {
  			if (nss_top_main.nss[core].subsys_dp_register[i].ndev) {

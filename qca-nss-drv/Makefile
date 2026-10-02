@@ -3,19 +3,18 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=qca-nss-drv
 PKG_RELEASE:=18
 
-# Source: https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-drv.git @ d7ef98b1d3d31346981d3a1abff5152a206374af
-# (tag NHSS.QSDK.14.0.r9-00025-O, the newest QSDK tag; pre-generated 'git archive' of the commit).
-# nss-drv is unchanged across every tag from r8-00008-O to NHSS.QSDK.14.0.r9-00025-O - they all
-# resolve to this commit - so r8 and r9 name the same source here.
+# Source: https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-drv.git @ 705629dab29e45e1fbfe57c4fcba73f3d58dee24
+# (head of win.nss.1.0.r39, three commits past NHSS.QSDK.14.0.r9-00040-O;
+# pre-generated 'git archive' of the commit).
 # Fetched from our release mirror so the download is deterministic and hash-verified;
 # git-proto regenerates the zstd archive locally and its hash varies by toolchain.
-PKG_SOURCE_DATE:=2026-04-10
-PKG_SOURCE_VERSION:=d7ef98b1d3d31346981d3a1abff5152a206374af
+PKG_SOURCE_DATE:=2026-07-29
+PKG_SOURCE_VERSION:=705629dab29e45e1fbfe57c4fcba73f3d58dee24
 QSDK_VERSION:=14.0
 PKG_VERSION:=$(QSDK_VERSION).$(subst -,.,$(PKG_SOURCE_DATE))~$(PKG_SOURCE_VERSION)
 PKG_SOURCE:=$(PKG_NAME)-$(subst ~,.,$(PKG_VERSION)).tar.zst
 PKG_SOURCE_URL:=https://github.com/JuliusBairaktaris/nss-packages/releases/download/nss-source-tarballs
-PKG_HASH:=fe700bb37bb205e22b4ccc218117bebc813bee4b17059fbc75a979f8b1087069
+PKG_HASH:=da91403856431c46c197d2c1137bd6b55ba8a39b39ada2435893b24d4a601c67
 
 PKG_BUILD_PARALLEL:=1
 PKG_FLAGS:=nonshared

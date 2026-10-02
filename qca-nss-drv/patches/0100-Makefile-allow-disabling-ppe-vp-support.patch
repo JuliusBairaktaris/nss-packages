@@ -11,7 +11,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/Makefile
 +++ b/Makefile
-@@ -437,10 +437,14 @@
+@@ -437,10 +437,14 @@ qca-nss-drv-objs += nss_data_plane/nss_d
  					nss_ppe.o \
  					nss_ppe_log.o \
  					nss_ppe_stats.o \
@@ -32,7 +32,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  ccflags-y += -DNSS_DRV_EDMA_ENABLE
 --- a/nss_hal/nss_hal.c
 +++ b/nss_hal/nss_hal.c
-@@ -548,7 +548,9 @@
+@@ -498,7 +498,9 @@ int nss_hal_probe(struct platform_device
  	if (npd->ppe_enabled == NSS_FEATURE_ENABLED) {
  		nss_top->ppe_handler_id = nss_dev->id;
  		nss_ppe_register_handler();

@@ -31,7 +31,7 @@ which runs at pool-churn rate, not per-packet rate.
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 --- a/nss_core.c
 +++ b/nss_core.c
-@@ -2023,7 +2023,18 @@
+@@ -2042,7 +2042,18 @@ static void nss_core_alloc_max_avail_siz
  		dma_addr_t buffer;
  		struct h2n_descriptor *desc = &desc_ring[hlos_index];
  
@@ -51,7 +51,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  		if (unlikely(!nbuf)) {
  			/*
  			 * ERR:
-@@ -2032,6 +2043,7 @@
+@@ -2051,6 +2062,7 @@ static void nss_core_alloc_max_avail_siz
  			nss_warning("%px: Could not obtain empty buffer", nss_ctx);
  			break;
  		}

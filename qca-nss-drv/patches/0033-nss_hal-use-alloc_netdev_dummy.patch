@@ -8,7 +8,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/nss_core.h
 +++ b/nss_core.h
-@@ -467,7 +467,7 @@
+@@ -467,7 +467,7 @@ struct nss_ctx_instance {
  	struct nss_top_instance *nss_top;
  					/* Back pointer to NSS Top */
  	struct device *dev;		/* Pointer to the original device from probe */
@@ -19,7 +19,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	void __iomem *vmap;		/* Virt mem pointer to virtual register map */
 --- a/nss_hal/fsm9010/nss_hal_pvt.c
 +++ b/nss_hal/fsm9010/nss_hal_pvt.c
-@@ -291,7 +291,7 @@
+@@ -291,7 +291,7 @@ static int __nss_hal_request_irq(struct
  	}
  
  	int_ctx->irq = npd->irq[irq_num];
@@ -30,7 +30,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
 --- a/nss_hal/ipq50xx/nss_hal_pvt.c
 +++ b/nss_hal/ipq50xx/nss_hal_pvt.c
-@@ -599,7 +599,7 @@
+@@ -599,7 +599,7 @@ static int __nss_hal_request_irq(struct
  		return err;
  	}
  
@@ -41,7 +41,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	if (err) {
 --- a/nss_hal/ipq60xx/nss_hal_pvt.c
 +++ b/nss_hal/ipq60xx/nss_hal_pvt.c
-@@ -707,7 +707,7 @@
+@@ -707,7 +707,7 @@ static int __nss_hal_request_irq(struct
  		return err;
  	}
  
@@ -52,7 +52,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	if (err) {
 --- a/nss_hal/ipq806x/nss_hal_pvt.c
 +++ b/nss_hal/ipq806x/nss_hal_pvt.c
-@@ -1185,7 +1185,7 @@
+@@ -1185,7 +1185,7 @@ static int __nss_hal_request_irq(struct
  	}
  
  	int_ctx->irq = npd->irq[irq_num];
@@ -63,7 +63,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  }
 --- a/nss_hal/ipq807x/nss_hal_pvt.c
 +++ b/nss_hal/ipq807x/nss_hal_pvt.c
-@@ -751,7 +751,7 @@
+@@ -751,7 +751,7 @@ static int __nss_hal_request_irq(struct
  		return err;
  	}
  
@@ -74,7 +74,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	if (err) {
 --- a/nss_hal/ipq95xx/nss_hal_pvt.c
 +++ b/nss_hal/ipq95xx/nss_hal_pvt.c
-@@ -890,9 +890,9 @@
+@@ -890,9 +890,9 @@ static int __nss_hal_request_irq(struct
  	}
  
  #if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0))
@@ -88,7 +88,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  	err = request_irq(irq, nss_hal_handle_irq, 0, irq_name, int_ctx);
 --- a/nss_hal/nss_hal.c
 +++ b/nss_hal/nss_hal.c
-@@ -360,10 +360,14 @@
+@@ -306,10 +306,14 @@ int nss_hal_probe(struct platform_device
  	/*
  	 * Initialize the dummy netdevice.
  	 */
@@ -105,7 +105,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  		if (err) {
  			goto err_register_irq;
  		}
-@@ -859,6 +863,8 @@
+@@ -802,6 +806,8 @@ err_register_irq:
  	for (i = 0; i < npd->num_irq; i++) {
  		nss_hal_clean_up_irq(&nss_ctx->int_ctx[i]);
  	}
@@ -114,7 +114,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  err_init:
  	if (nss_dev->dev.of_node) {
-@@ -929,6 +935,11 @@
+@@ -872,6 +878,11 @@ int nss_hal_remove(struct platform_devic
  		}
  	}
  

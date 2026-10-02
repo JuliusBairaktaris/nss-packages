@@ -20,7 +20,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  #include <linux/module.h>
  #include <linux/platform_device.h>
-@@ -116,6 +117,17 @@
+@@ -116,6 +117,17 @@ extern struct of_device_id nss_dt_ids[];
   */
  static inline int nss_probe(struct platform_device *nss_dev)
  {

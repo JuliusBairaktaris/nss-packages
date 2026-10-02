@@ -21,7 +21,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/nss_core.c
 +++ b/nss_core.c
-@@ -3428,13 +3428,16 @@ int32_t nss_core_send_cmd(struct nss_ctx
+@@ -3434,13 +3434,16 @@ int32_t nss_core_send_cmd(struct nss_ctx
  		return NSS_TX_FAILURE_TOO_LARGE;
  	}
  

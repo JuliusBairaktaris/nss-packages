@@ -34,7 +34,7 @@ touched.
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 --- a/nss_core.c
 +++ b/nss_core.c
-@@ -1361,7 +1361,6 @@
+@@ -1380,7 +1380,6 @@ static inline bool nss_core_handle_linea
  
  		skb_frag_list_init(nbuf);
  		nbuf->data_len = 0;
@@ -42,7 +42,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  		nbuf->priority = desc->pri;
  
  #ifdef CONFIG_NET_CLS_ACT
-@@ -1421,7 +1420,7 @@
+@@ -1440,7 +1439,7 @@ static inline bool nss_core_handle_linea
  	 */
  	head->data_len += desc->payload_len;
  	head->len += desc->payload_len;

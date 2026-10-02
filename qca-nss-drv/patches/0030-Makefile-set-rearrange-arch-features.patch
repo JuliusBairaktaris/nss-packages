@@ -4,7 +4,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/Makefile
 +++ b/Makefile
-@@ -122,12 +122,14 @@ qca-nss-drv-objs += \
+@@ -124,12 +124,14 @@ qca-nss-drv-objs += \
  endif
  endif
  
@@ -19,7 +19,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  ifneq "$(NSS_DRV_GRE_ENABLE)" "n"
  ccflags-y += -DNSS_DRV_GRE_ENABLE
-@@ -255,6 +257,7 @@ qca-nss-drv-objs += \
+@@ -257,6 +259,7 @@ qca-nss-drv-objs += \
  			 nss_rmnet_rx_stats.o
  endif
  
@@ -27,7 +27,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  ifneq "$(NSS_DRV_PORTID_ENABLE)" "n"
  ccflags-y += -DNSS_DRV_PORTID_ENABLE
  qca-nss-drv-objs += \
-@@ -262,6 +265,7 @@ qca-nss-drv-objs += \
+@@ -264,6 +267,7 @@ qca-nss-drv-objs += \
  			 nss_portid_log.o \
  			 nss_portid_stats.o
  endif
@@ -35,7 +35,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  ifneq "$(NSS_DRV_IGS_ENABLE)" "n"
  ccflags-y += -DNSS_DRV_IGS_ENABLE
-@@ -270,12 +274,14 @@ qca-nss-drv-objs += \
+@@ -272,12 +276,14 @@ qca-nss-drv-objs += \
  			 nss_igs_stats.o
  endif
  
@@ -50,7 +50,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  ifneq "$(NSS_DRV_CLMAP_ENABLE)" "n"
  ccflags-y += -DNSS_DRV_CLMAP_ENABLE
-@@ -350,16 +356,13 @@ endif
+@@ -352,16 +358,13 @@ endif
  
  ifneq "$(NSS_DRV_WIFIOFFLOAD_ENABLE)" "n"
  ccflags-y += -DNSS_DRV_WIFIOFFLOAD_ENABLE
@@ -69,7 +69,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  qca-nss-drv-objs += \
  			nss_wifi_vdev.o \
  			nss_wifili.o \
-@@ -368,6 +371,7 @@ qca-nss-drv-objs += \
+@@ -370,6 +373,7 @@ qca-nss-drv-objs += \
  			nss_wifili_strings.o \
  			nss_wifi_mac_db.o
  endif
