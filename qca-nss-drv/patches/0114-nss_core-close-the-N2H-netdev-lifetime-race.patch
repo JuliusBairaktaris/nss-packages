@@ -69,11 +69,9 @@ manager is built.
 
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
-Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_core.c
-===================================================================
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_core.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_core.c
-@@ -402,6 +402,18 @@ void nss_core_unregister_subsys_dp(struc
+--- a/nss_core.c
++++ b/nss_core.c
+@@ -389,6 +389,18 @@ void nss_core_unregister_subsys_dp(struc
  	reg->ndev = NULL;
  	reg->features = 0;
  	reg->type = 0;
@@ -92,9 +90,9 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  }
  
  /*
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_rmnet_rx.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_rmnet_rx.c
-@@ -388,9 +388,7 @@
+--- a/nss_rmnet_rx.c
++++ b/nss_rmnet_rx.c
+@@ -388,9 +388,7 @@ nss_tx_status_t nss_rmnet_rx_destroy_syn
  		return NSS_TX_FAILURE_NOT_READY;
  	}
  
@@ -104,7 +102,7 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  		nss_warning("%px: Unregister virt interface %d %d: no context\n", nss_ctx, if_num_n2h, if_num_h2n);
  		return NSS_TX_FAILURE_BAD_PARAM;
  	}
-@@ -399,7 +397,6 @@
+@@ -399,7 +397,6 @@ nss_tx_status_t nss_rmnet_rx_destroy_syn
  	nss_assert(dev == nss_ctx->subsys_dp_register[if_num_h2n].ndev);
  	nss_core_unregister_subsys_dp(nss_ctx, if_num_n2h);
  	nss_core_unregister_subsys_dp(nss_ctx, if_num_h2n);
@@ -112,9 +110,9 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  	dev_put(dev);
  
  	status = nss_rmnet_rx_handle_destroy_sync(handle);
---- qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af.orig/nss_virt_if.c
-+++ qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_virt_if.c
-@@ -489,9 +489,7 @@
+--- a/nss_virt_if.c
++++ b/nss_virt_if.c
+@@ -489,9 +489,7 @@ nss_tx_status_t nss_virt_if_destroy_sync
  		return NSS_TX_FAILURE_NOT_READY;
  	}
  
@@ -124,7 +122,7 @@ Index: qca-nss-drv-14.0.2026.04.10~d7ef98b1d3d31346981d3a1abff5152a206374af/nss_
  		nss_warning("%px: Unregister virt interface %d %d: no context\n", nss_ctx, if_num_n2h, if_num_h2n);
  		return NSS_TX_FAILURE_BAD_PARAM;
  	}
-@@ -500,7 +498,6 @@
+@@ -500,7 +498,6 @@ nss_tx_status_t nss_virt_if_destroy_sync
  	nss_assert(dev == nss_ctx->subsys_dp_register[if_num_h2n].ndev);
  	nss_core_unregister_subsys_dp(nss_ctx, if_num_n2h);
  	nss_core_unregister_subsys_dp(nss_ctx, if_num_h2n);

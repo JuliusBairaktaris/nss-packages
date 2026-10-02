@@ -42,7 +42,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 ---
 --- a/nss_data_plane/nss_data_plane.c
 +++ b/nss_data_plane/nss_data_plane.c
-@@ -65,8 +65,21 @@
+@@ -65,8 +65,21 @@ static int __nss_data_plane_close(struct
  		return NSS_DP_SUCCESS;
  	}
  

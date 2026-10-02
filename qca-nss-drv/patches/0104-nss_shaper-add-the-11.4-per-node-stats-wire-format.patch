@@ -4,7 +4,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/exports/nss_shaper.h
 +++ b/exports/nss_shaper.h
-@@ -709,6 +709,44 @@
+@@ -709,6 +709,44 @@ struct nss_shaper_node_stats_sync_many {
                                                  /**< Response to host. */
  };
  
@@ -49,7 +49,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  /**
   * nss_shaper_configure
   *	Configuration message for a shaper node.
-@@ -735,6 +773,10 @@
+@@ -735,6 +773,10 @@ struct nss_shaper_configure {
  				/**< Configuration message for any type of shaper node. */
  		struct nss_shaper_node_stats_sync_many stats_get;
  				/**< Statistics of multiple shaper nodes. */

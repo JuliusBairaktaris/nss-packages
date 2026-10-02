@@ -4,7 +4,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/Makefile
 +++ b/Makefile
-@@ -350,10 +350,17 @@ endif
+@@ -352,10 +352,17 @@ endif
  
  ifneq "$(NSS_DRV_WIFIOFFLOAD_ENABLE)" "n"
  ccflags-y += -DNSS_DRV_WIFIOFFLOAD_ENABLE
@@ -25,7 +25,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  			nss_wifili_log.o \
 --- a/nss_hal/nss_hal.c
 +++ b/nss_hal/nss_hal.c
-@@ -587,7 +587,9 @@ int nss_hal_probe(struct platform_device
+@@ -575,7 +575,9 @@ int nss_hal_probe(struct platform_device
  	if (npd->wifioffload_enabled == NSS_FEATURE_ENABLED) {
  		nss_top->wifi_handler_id = nss_dev->id;
  		nss_top->dynamic_interface_table[NSS_DYNAMIC_INTERFACE_TYPE_VAP] = nss_dev->id;

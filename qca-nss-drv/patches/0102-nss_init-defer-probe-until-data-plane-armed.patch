@@ -12,7 +12,7 @@ glue re-attaches the deferred core devices when arming happens.
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 --- a/nss_init.c
 +++ b/nss_init.c
-@@ -37,6 +37,7 @@
+@@ -34,6 +34,7 @@
  #include "nss_strings.h"
  
  #include <nss_hal.h>
@@ -20,7 +20,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  #include <linux/module.h>
  #include <linux/platform_device.h>
-@@ -116,6 +117,17 @@
+@@ -101,6 +102,17 @@ extern struct of_device_id nss_dt_ids[];
   */
  static inline int nss_probe(struct platform_device *nss_dev)
  {

@@ -12,12 +12,9 @@ So, simply pass the device structure pointers.
 
 Signed-off-by: Robert Marko <robimarko@gmail.com>
 ---
- nss_core.c | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
-
 --- a/nss_core.c
 +++ b/nss_core.c
-@@ -1664,7 +1664,7 @@ static int32_t nss_core_handle_cause_que
+@@ -1638,7 +1638,7 @@ static int32_t nss_core_handle_cause_que
  		 *
  		 */
  		if (unlikely((buffer_type == N2H_BUFFER_CRYPTO_RESP))) {
