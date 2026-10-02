@@ -1,0 +1,25 @@
+Do not build with -Werror
+
+The vendor code is not warning-clean on current kernels (GCC 15,
+kernel 6.18 kbuild), and kbuild dropped EXTRA_CFLAGS support in 6.15,
+so the packaging can no longer demote the errors from outside.
+
+Dropping the module's own -Werror is not enough where the kernel is
+built with CONFIG_WERROR, which puts -Werror in KBUILD_CFLAGS for
+everything. A module's ccflags-y land after those on the command line,
+so -Wno-error there demotes them for this module and leaves the
+kernel's own strictness alone.
+
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+
+--- a/Makefile
++++ b/Makefile
+@@ -37,7 +37,7 @@
+ ccflags-$(CONFIG_WLAN_FEATURE_VBSS) += -DWLAN_FEATURE_VBSS
+ 
+ # Module extra compilation flags
+-ccflags-y += -Werror -Wall -g
++ccflags-y += -Wall -g -Wno-error
+ 
+ 
+ ifneq ($(KERNELRELEASE),)

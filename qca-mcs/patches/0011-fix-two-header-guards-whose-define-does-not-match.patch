@@ -1,0 +1,40 @@
+fix two header guards whose define does not match
+
+mc_ovs.h opens with
+
+	#ifndef _MC_OVS_H_
+	#define _MC_OVS_H
+
+and mc_wifi_events.h with
+
+	#ifndef _MC_WIFI_EVENTS_H
+	#define _MC_WIFI_EVENTS_H_
+
+so in each the macro the guard tests is not the one it defines: the
+header protects nothing and is included in full every time. A compiler
+that warns on this refuses the build outright once warnings are errors.
+
+Make each define what it tests.
+
+--- a/mc_ovs.h
++++ b/mc_ovs.h
+@@ -15,7 +15,7 @@
+  */
+ 
+ #ifndef _MC_OVS_H_
+-#define _MC_OVS_H
++#define _MC_OVS_H_
+ 
+ int mc_ovs_init(void);
+ void mc_ovs_exit(void);
+--- a/mc_wifi_events.h
++++ b/mc_wifi_events.h
+@@ -3,7 +3,7 @@
+  */
+ 
+ #ifndef _MC_WIFI_EVENTS_H
+-#define _MC_WIFI_EVENTS_H_
++#define _MC_WIFI_EVENTS_H
+ 
+ #include <linux/netdevice.h>
+ #include <linux/if_ether.h>
