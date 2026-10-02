@@ -16,13 +16,10 @@ get the memory region phandle and simply convert it to a resource.
 
 Signed-off-by: Robert Marko <robimarko@gmail.com>
 ---
- nss_core.c | 70 +++++++++++++++++++++++-------------------------------
- 1 file changed, 30 insertions(+), 40 deletions(-)
-
 --- a/nss_core.c
 +++ b/nss_core.c
-@@ -26,6 +26,8 @@
- #include <linux/module.h>
+@@ -27,6 +27,8 @@
+ #include <linux/version.h>
  #include <linux/mm.h>
  #include <linux/of.h>
 +#include <linux/of_address.h>
@@ -30,7 +27,7 @@ Signed-off-by: Robert Marko <robimarko@gmail.com>
  #include <nss_hal.h>
  #include <net/dst.h>
  #ifdef CONFIG_BRIDGE_NETFILTER
-@@ -491,50 +493,38 @@ static void nss_core_handle_crypto_pkt(s
+@@ -483,50 +485,38 @@ static void nss_core_handle_crypto_pkt(s
   */
  static uint32_t nss_soc_mem_info(void)
  {

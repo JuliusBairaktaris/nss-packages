@@ -167,21 +167,34 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  };
  
  /**
---- a/nss_wifili_stats.c
-+++ b/nss_wifili_stats.c
-@@ -414,10 +414,12 @@ void nss_wifili_stats_sync(struct nss_ct
- 								devstats->txcomp_stats[index].hw_ring_empty;
- 		stats->stats_tx_comp[index][NSS_WIFILI_STATS_TX_DESC_FREE_REAPED] +=
- 								devstats->txcomp_stats[index].ring_reaped;
+--- a/nss_capwap_log.c
++++ b/nss_capwap_log.c
+@@ -166,7 +166,11 @@ static void nss_capwap_flow_rule_msg(str
+ 		"CAPWAP Destination Port: %d\n"
+ 		"CAPWAP Source IP: %x %x %x %x\n"
+ 		"CAPWAP Destination IP: %x %x %x %x"
 +#ifndef NSS_FIRMWARE_VERSION_11_4
- 		stats->stats_tx_comp[index][NSS_WIFILI_STATS_TX_CAPTURE_ENQUEUE] +=
- 								devstats->txcomp_stats[index].tx_cap_enqueue_count;
- 		stats->stats_tx_comp[index][NSS_WIFILI_STATS_TX_CAPTURE_ENQUEUE_FAIL] +=
- 								devstats->txcomp_stats[index].tx_cap_enqueue_fail_count;
+ 		"CAPWAP Flow type:%d Flow ID: %d SCS_SDWF ID: %d",
++#else
++		"CAPWAP Flow ID: %d",
 +#endif
- 	}
+ 		ncfrm,
+ 		ncfrm->ip_version, ncfrm->protocol,
+ 		ncfrm->src_port, ncfrm->dst_port,
+@@ -174,9 +178,13 @@ static void nss_capwap_flow_rule_msg(str
+ 		ncfrm->src_ip[2], ncfrm->src_ip[3],
+ 		ncfrm->dst_ip[0], ncfrm->dst_ip[1],
+ 		ncfrm->dst_ip[2], ncfrm->dst_ip[3],
++#ifndef NSS_FIRMWARE_VERSION_11_4
+ 		ncfrm->flow_attr.type,
+ 		ncfrm->flow_attr.flow_id,
+ 		ncfrm->flow_attr.scs_sdwf_id);
++#else
++		ncfrm->flow_id);
++#endif
+ }
  
- 	/*
+ /*
 --- a/nss_pvxlan_log.c
 +++ b/nss_pvxlan_log.c
 @@ -36,7 +36,9 @@ static int8_t *nss_pvxlan_log_message_ty
@@ -236,31 +249,18 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  	case NSS_PVXLAN_MSG_TYPE_SYNC_STATS:
  		break;
---- a/nss_capwap_log.c
-+++ b/nss_capwap_log.c
-@@ -166,7 +166,11 @@ static void nss_capwap_flow_rule_msg(str
- 		"CAPWAP Destination Port: %d\n"
- 		"CAPWAP Source IP: %x %x %x %x\n"
- 		"CAPWAP Destination IP: %x %x %x %x"
+--- a/nss_wifili_stats.c
++++ b/nss_wifili_stats.c
+@@ -414,10 +414,12 @@ void nss_wifili_stats_sync(struct nss_ct
+ 								devstats->txcomp_stats[index].hw_ring_empty;
+ 		stats->stats_tx_comp[index][NSS_WIFILI_STATS_TX_DESC_FREE_REAPED] +=
+ 								devstats->txcomp_stats[index].ring_reaped;
 +#ifndef NSS_FIRMWARE_VERSION_11_4
- 		"CAPWAP Flow type:%d Flow ID: %d SCS_SDWF ID: %d",
-+#else
-+		"CAPWAP Flow ID: %d",
+ 		stats->stats_tx_comp[index][NSS_WIFILI_STATS_TX_CAPTURE_ENQUEUE] +=
+ 								devstats->txcomp_stats[index].tx_cap_enqueue_count;
+ 		stats->stats_tx_comp[index][NSS_WIFILI_STATS_TX_CAPTURE_ENQUEUE_FAIL] +=
+ 								devstats->txcomp_stats[index].tx_cap_enqueue_fail_count;
 +#endif
- 		ncfrm,
- 		ncfrm->ip_version, ncfrm->protocol,
- 		ncfrm->src_port, ncfrm->dst_port,
-@@ -174,9 +178,13 @@ static void nss_capwap_flow_rule_msg(str
- 		ncfrm->src_ip[2], ncfrm->src_ip[3],
- 		ncfrm->dst_ip[0], ncfrm->dst_ip[1],
- 		ncfrm->dst_ip[2], ncfrm->dst_ip[3],
-+#ifndef NSS_FIRMWARE_VERSION_11_4
- 		ncfrm->flow_attr.type,
- 		ncfrm->flow_attr.flow_id,
- 		ncfrm->flow_attr.scs_sdwf_id);
-+#else
-+		ncfrm->flow_id);
-+#endif
- }
+ 	}
  
- /*
+ 	/*

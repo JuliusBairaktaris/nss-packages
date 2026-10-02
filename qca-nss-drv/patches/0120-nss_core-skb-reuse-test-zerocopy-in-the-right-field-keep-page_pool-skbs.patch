@@ -19,17 +19,17 @@ Signed-off-by: Andrei-Alexandru Bleortu <me@andrei-z.com>
 ---
 --- a/nss_core.c
 +++ b/nss_core.c
-@@ -2812,7 +2812,7 @@ static inline bool nss_core_skb_can_reus
- 	if (unlikely(skb_shinfo(nbuf)->tx_flags & SKBTX_DEV_ZEROCOPY))
+@@ -2771,7 +2771,7 @@ static inline bool nss_core_skb_can_reus
+ 
+ 	if (unlikely(irqs_disabled()))
  		return false;
- #else
 -	if (unlikely(skb_shinfo(nbuf)->tx_flags & SKBFL_ZEROCOPY_ENABLE))
 +	if (unlikely(skb_zcopy(nbuf)))
  		return false;
- #endif
  
-@@ -2844,6 +2844,13 @@ static inline bool nss_core_skb_can_reus
- #endif
+ 	if (unlikely(skb_is_nonlinear(nbuf)))
+@@ -2800,6 +2800,13 @@ static inline bool nss_core_skb_can_reus
+ 		return false;
  
  	/*
 +	 * A page_pool head goes back to its pool on free; reuse would clear
