@@ -1,0 +1,832 @@
+#!/bin/sh
+#
+# nss-edma.qos -- NSS-accelerated SQM for the EDMA stack (IPQ807x).
+#
+# nsstbl (firmware token bucket) -> optional 2-band nssprio fast lane ->
+# nssfq_codel (AQM), per direction, all scheduling done in NSS firmware
+# (accel_mode 0). Egress rides the physical WAN port, ingress an IFB fed by an
+# act_nssmirred redirect off that port. The shaper sits below the VLAN/PPPoE
+# encapsulation because the firmware refuses shaper nodes on the ppp netdev.
+#
+# Three properties this file has to keep, each one learned the hard way:
+#
+#  * It is SOURCED by start-sqm and stop-sqm, so it defines functions and
+#    nothing else. A top-level `exit` aborts the caller before sqm_start or
+#    sqm_stop ever runs - and before the state file is written or removed.
+#  * $TC is sqm-scripts' tc_wrapper: it captures the command's entire output
+#    into a variable for its own error logging and never prints it. It can
+#    therefore only be used to MUTATE; every query below uses plain tc. The one
+#    deliberate exception is the redirect install in ensure_redirect, which
+#    needs to read the refusal to decide whether retrying is sane, and logs it
+#    itself instead.
+#  * sqm_start converges: it compares what is on the wire against the
+#    configuration, touches only what genuinely differs, and reports failure
+#    honestly. A start that lies costs more than a start that fails - the
+#    state file it leaves behind lives in tmpfs and no later start gets past
+#    it until the box reboots.
+
+. /lib/functions.sh
+. /lib/functions/network.sh
+. "${SQM_LIB_DIR}/defaults.sh"
+
+
+# Queue depth the auto-calculated packet limit aims at. The firmware buffers
+# roughly twice the configured limit, so 15 ms of wire time lands near 30 ms of
+# real queue.
+MAXQLIMIT_MS=15
+
+# CoDel needs a handful of packets to measure at all; below this the limit,
+# not the AQM, would be doing the dropping.
+MINLIMIT=64
+
+# The firmware pbuf pool is shared with Wi-Fi and the N2H rings, so a queue
+# deeper than this starves them instead of the flow it is shaping.
+NSS_LIMIT_CAP=2048
+
+# The fast lane exists for a few latency-critical packets in flight, never for
+# a bulk queue - a short pfifo is the whole point of it.
+FASTLANE_LIMIT=64
+
+# Default share of the WAN upload the per-port upload trees may claim. The
+# headroom absorbs the uploaders that have no IGS tree of their own (Wi-Fi).
+IGS_RATE_PCT=95
+
+# ...and never shape a port above roughly its own link rate, or the queue just
+# moves into the switch where no AQM can reach it.
+IGS_LINK_PCT=95
+
+
+# --- configuration -----------------------------------------------------------
+
+_sqm_opt_match() {
+	local dev
+	config_get dev "$1" interface
+	[ "$dev" = "$IFACE" ] && config_get SQM_OPT_VAL "$1" "$SQM_OPT_KEY"
+}
+
+# These options are ours, not sqm-scripts', so run.sh never exports them.
+sqm_opt() {
+	SQM_OPT_KEY=$1 SQM_OPT_VAL=
+	config_load sqm
+	config_foreach _sqm_opt_match queue
+	echo "$SQM_OPT_VAL"
+}
+
+# Default-on when unset, but a user writing 'false' or 'off' means it.
+fastlane_enabled() {
+	case "$(sqm_opt fastlane)" in
+	0|off|false|no|disabled) return 1 ;;
+	esac
+	return 0
+}
+
+check_addr() {
+	local proto iface_addr
+
+	proto=$(uci -q get "network.${IFACE}.proto")
+	case "$proto" in
+	pppoe|dslite|map) ;;
+	*) return 0 ;;
+	esac
+
+	network_get_ipaddr iface_addr "${IFACE}"
+	if [ -z "$iface_addr" ]; then
+		sqm_error "check_addr: no IP on ${IFACE} (proto=${proto}), waiting for hotplug or manual restart"
+		return 1
+	fi
+	sqm_debug "check_addr: ${IFACE} has IP ${iface_addr} (proto=${proto})"
+}
+
+# Rates are gross L2 rates, so the shaper has to be told about every byte the
+# encapsulation adds after it. 22 = Ethernet framing + preamble + IFG.
+auto_detect_overhead() {
+	local proto device oh=22
+
+	proto=$(uci -q get "network.${IFACE}.proto")
+	device=$(uci -q get "network.${IFACE}.device")
+
+	case "$proto" in
+	pppoe)  oh=$((oh + 10)) ;;
+	dslite) oh=$((oh + 40)) ;;
+	map)    oh=$((oh + 20)) ;;
+	esac
+
+	case "$device" in
+	*.*) oh=$((oh + 4)) ;;
+	esac
+
+	sqm_log "auto_detect_overhead: proto=${proto:-static} device=${device:-$IFACE} -> ${oh} bytes"
+	echo $oh
+}
+
+calc_limit() {
+	local speed=$1 mtu=$2 delay_ms=$3
+	local limit
+
+	limit=$(( speed * 125 * delay_ms / 1000 / mtu ))
+
+	if [ "$limit" -lt "$MINLIMIT" ]; then
+		sqm_debug "calc_limit: ${limit}p too low for CoDel, raising to ${MINLIMIT}p"
+		limit=$MINLIMIT
+	elif [ "$limit" -gt "$NSS_LIMIT_CAP" ]; then
+		sqm_debug "calc_limit: ${limit}p exceeds NSS pbuf budget, capping to ${NSS_LIMIT_CAP}p"
+		limit=$NSS_LIMIT_CAP
+	else
+		sqm_debug "calc_limit: ${limit}p (${speed} kbps, MTU ${mtu}, ${delay_ms}ms window)"
+	fi
+	echo $limit
+}
+
+calc_effective_mtu() {
+	local direction=$1
+	local mtu overhead
+
+	mtu=$(get_mtu $IFACE)
+	overhead="${OVERHEAD}"
+
+	if [ "${overhead}" -eq 0 ] 2>/dev/null || [ -z "${overhead}" ]; then
+		overhead=$(auto_detect_overhead)
+		sqm_log "${direction}: overhead not configured, auto-detected ${overhead} bytes"
+	fi
+
+	echo $((mtu + overhead))
+}
+
+
+# --- what the tree should look like, and what it does look like --------------
+
+# tc prints rates SI-scaled (165Mbit) and sizes 1024-scaled (2Kb) while we hand
+# it kbit and plain bytes; normalise both spellings onto one number.
+#
+# Both printers LOSE information, so undoing the spelling is not enough: the
+# spec side has to be made equally lossy or a correct tree can never match its
+# own digest. tc_print_rate() stops dividing only while the value is a whole
+# multiple of 1000 or below 1000*kilo, so above 1 Gbit it truncates to whole
+# Mbit; sprint_size() snaps a byte count to whole KiB whenever it is within
+# 16 bytes of one. Quantise here exactly as they do. Getting this wrong is not
+# a cosmetic mismatch: ensure_tree would delete the tree it just built
+# correctly, on every attempt, for ever.
+_kbit() {
+	local v
+	case "$1" in
+	*[Kk]bit) v="${1%[Kk]bit}" ;;
+	*[Mm]bit) v=$(( ${1%[Mm]bit} * 1000 )) ;;
+	*[Gg]bit) v=$(( ${1%[Gg]bit} * 1000000 )) ;;
+	*bit)     v=$(( ${1%bit} / 1000 )) ;;
+	*)        v="$1" ;;
+	esac
+	# exact for every rate this silicon can carry (< 1 Tbit)
+	[ "$v" -ge 1000000 ] 2>/dev/null && v=$(( v / 1000 * 1000 ))
+	echo "$v"
+}
+
+_bytes() {
+	local v k d
+	case "$1" in
+	*Kb) v=$(( ${1%Kb} * 1024 )) ;;
+	*Mb) v=$(( ${1%Mb} * 1048576 )) ;;
+	*b)  v="${1%b}" ;;
+	*)   v="$1" ;;
+	esac
+	# sprint_size()'s KiB snap. Half-up here vs its half-even differs only at
+	# exactly k*1024+512, where neither snaps; the MiB tier is out of reach
+	# for an MTU or a packet limit.
+	if [ "$v" -ge 1024 ] 2>/dev/null; then
+		k=$(( (v + 512) / 1024 )); d=$(( v - k * 1024 ))
+		[ "$d" -lt 0 ] && d=$(( 0 - d ))
+		[ "$d" -lt 16 ] && v=$(( k * 1024 ))
+	fi
+	echo "$v"
+}
+
+# Canonical, order-independent digest of an NSS tree. It is fed both the live
+# readback and a tree_spec, so one parser decides both sides and no formatting
+# quirk can make a healthy tree look wrong (or a wrong one look healthy). tc
+# dumps qdiscs in hash order, hence the per-kind keys and the sort.
+#
+# Only what decides behaviour is digested: rate, MTU, the limits, the band
+# count, the quantum, and the set_default flag that decides whether the tree
+# forwards at all. Burst follows from rate and MTU. Target and interval
+# are left out on purpose, at the price of a converge not noticing an edit to
+# them: tc prints both as three significant digits of milliseconds, so an
+# adapted target (itarget=auto yields e.g. 13992us) reads back as 14ms and the
+# rebuild would never converge - the very wedge this digest exists to prevent.
+# Editing them in uci reloads the sqm service anyway, and that stops first.
+#
+# The flow count is left out for the same reason, and it matters more. A codel
+# leaf needs one physically contiguous 128 KB block for 1024 flow queues, and
+# when memory is too fragmented to hand one over the driver halves the count
+# until it fits rather than lose the leaf - because a tree with no default leaf
+# takes the port off the air entirely. The tree then reads back with fewer flows
+# than the spec asked for, and digesting that would delete a working shaper and
+# rebuild it into the same shortage, over and over, re-opening the black hole on
+# every pass. Exactly the case the converge exists to survive.
+tree_sig() (
+	set -f	# tc spells the ingress qdisc '----------------'; never glob
+
+	while read -r line; do
+		set -- $line
+		[ "$1" = qdisc ] || continue
+		kind=$2
+		shift 2
+		while [ $# -gt 0 ]; do
+			case "$1" in
+			rate)  echo "${kind}.rate=$(_kbit "$2")"; shift ;;
+			mtu)   echo "${kind}.mtu=$(_bytes "$2")"; shift ;;
+			limit) echo "${kind}.limit=$(_bytes "${2%p}")"; shift ;;
+			bands|quantum) echo "${kind}.$1=$2"; shift ;;
+			flows) shift ;;
+			set_default) echo "${kind}.set_default" ;;
+			esac
+			shift
+		done
+	done | sort
+)
+
+# Every parameter of the AQM leaf, defaulted unless the caller or the user's
+# {I,E}QDISC_OPTS already spelled it out. Whatever this returns is both what gets
+# installed and what the digest above expects to read back, so it has to name
+# every field tc prints - a field the spec leaves out does not stay unset, it
+# comes back as the firmware's own value and no tree can ever match.
+#
+# Hence NOT via sqm-scripts' get_limit/get_quantum: those are gated on the uci
+# `qdisc` option, which this script ignores because its leaf is always
+# nssfq_codel. For a non-codel value (cake, sfq, plain codel...) get_quantum
+# emits nothing, tc then sends quantum 0, and the leaf reads back as `quantum 0`
+# - a token no spec can produce, i.e. a tree rebuilt and discarded on every
+# single start. get_limit would also warn about a limit it passes through anyway.
+leaf_opts() {
+	local speed=$1 mtu=$2 limit=$3 opts=$4
+	local quantum
+
+	case "$opts" in
+	*limit*) ;;
+	*) opts="limit ${limit} ${opts}" ;;
+	esac
+
+	case "$opts" in
+	*interval*) ;;
+	*) opts="interval 100ms ${opts}" ;;
+	esac
+
+	case "$opts" in
+	*quantum*) ;;
+	*)
+		# A full-MTU quantum on a slow link lets one fat flow hold the
+		# round long enough to be felt; a fifth of it keeps the round
+		# short enough to stay fair.
+		quantum=$mtu
+		[ "$speed" -lt 100000 ] && quantum=$(((mtu / 5) + 1))
+		opts="quantum ${quantum} ${opts}"
+		;;
+	esac
+
+	case "$opts" in
+	*flows*) ;;
+	*) opts="flows 1024 ${opts}" ;;
+	esac
+
+	echo "$opts"
+}
+
+# The tree we want, in the shape `tc qdisc show` prints it:
+#	qdisc <kind> <handle> <parent|root> <args...>
+# One description drives both the comparison and the build, so what gets
+# verified afterwards is exactly what was asked for.
+#
+# tree_spec <fastlane 0|1> <speed kbps> <target> <limit> <mtu> <opts> <ecn> <burst us>
+tree_spec() {
+	local fast=$1 speed=$2 target=$3 limit=$4 mtu=$5 opts=$6 ecn=$7 burst_us=$8
+	local burst leaf=1: tgt
+
+	if [ -n "$ecn" ] && [ "$(get_ecn "$ecn")" = "ecn" ]; then
+		sqm_log "tree_spec: NSS firmware does not implement CoDel ECN marking; ignoring ECN setting"
+	fi
+
+	# The firmware token bucket hands out credit in whole frames, so round
+	# the burst to a whole number of MTUs rather than leave a partial one.
+	burst=$(get_burst ${mtu} ${speed} ${burst_us})
+	burst=$(( ((burst + mtu / 2) / mtu) * mtu ))
+
+	# get_target expands the auto/default keywords and appends its own,
+	# widened interval on a slow link, so it goes THROUGH leaf_opts' guards
+	# and not around them - otherwise leaf_opts' default interval would land
+	# after it and silently override the adapted one. Its empty answer is not
+	# a "leave it at the default" either: it is what it returns for a
+	# non-codel uci `qdisc`, and both tc and the firmware refuse a leaf
+	# whose target is 0 outright, so fall back to the configured value.
+	tgt=$(get_target "$target" "$speed")
+	# ...but only when it looks like a time. get_target answers empty for the
+	# `default` keyword too, on purpose, and "leave it at the qdisc default"
+	# is not expressible on nssfq_codel - the firmware rejects a zero target -
+	# so `target default` would reach tc verbatim and fail the whole build.
+	[ -n "$tgt" ] || case "$target" in
+		[0-9]*) tgt="target ${target}" ;;
+		*)      tgt="target 5ms" ;;
+	esac
+	opts=$(leaf_opts "$speed" "$mtu" "$limit" "$tgt $opts")
+
+	sqm_debug "tree_spec: rate=${speed}kbps burst=${burst} mtu=${mtu} fastlane=${fast} leaf=[${opts}]"
+
+	echo "qdisc nsstbl 1: root rate ${speed}kbit burst ${burst} mtu ${mtu} accel_mode 0"
+	if [ "$fast" = 1 ]; then
+		leaf=2:2
+		echo "qdisc nssprio 2: 1: bands 2 accel_mode 0"
+	fi
+	# The default leaf goes in before the fast lane band: until some leaf
+	# below the root carries set_default the tree drops everything handed
+	# to it, so that window is kept as short as it can be.
+	echo "qdisc nssfq_codel 10: ${leaf} ${opts} set_default accel_mode 0"
+	[ "$fast" = 1 ] &&
+		echo "qdisc nsspfifo 100: 2:1 limit ${FASTLANE_LIMIT} accel_mode 0"
+	return 0
+}
+
+build_tree() {
+	local dev=$1 spec=$2
+
+	printf '%s\n' "$spec" | while read -r _ kind handle parent args; do
+		case "$parent" in
+		root) ;;
+		*) parent="parent $parent" ;;
+		esac
+		$TC qdisc add dev "$dev" handle "$handle" $parent "$kind" $args || exit 1
+	done
+}
+
+# Converge $1 onto $2. An already-correct tree is left completely alone; any
+# failure leaves the device with NO tree at all, because a root whose default
+# leaf is missing drops 100% of what it is handed - ARP and PPPoE discovery
+# included - while carrier, link and every status stay green. Unshaped is a
+# missing feature; half a tree is a dead interface.
+ensure_tree() {
+	local dev=$1 spec=$2
+	local want
+
+	want=$(printf '%s\n' "$spec" | tree_sig)
+	if [ "$(tc qdisc show dev "$dev" 2>/dev/null | tree_sig)" = "$want" ]; then
+		sqm_debug "ensure_tree: ${dev} already carries the configured tree, left untouched"
+		return 0
+	fi
+
+	SILENT=1 $TC qdisc del dev "$dev" root
+	if ! build_tree "$dev" "$spec"; then
+		sqm_error "ensure_tree: ${dev} tree build failed, removing what was built"
+	elif [ "$(tc qdisc show dev "$dev" 2>/dev/null | tree_sig)" = "$want" ]; then
+		sqm_log "ensure_tree: ${dev} tree built"
+		return 0
+	else
+		# The firmware can accept every qdisc and still not end up with
+		# the tree that was asked for, and an unnoticed miss is a black
+		# hole, so the readback decides - not the return codes.
+		sqm_error "ensure_tree: ${dev} did not read back as configured, removing the tree"
+	fi
+	SILENT=1 $TC qdisc del dev "$dev" root
+	return 1
+}
+
+
+# --- the ingress redirect ----------------------------------------------------
+#
+# This is not merely a tc filter. Creating it makes nss_mirred send
+# NSS_IFB_SET_IGS_NODE and NSS_IFB_SET_NEXTHOP to the SOURCE PHYSICAL PORT
+# (nss_ifb.c addresses both to the port, with the ifb's NSS interface as the
+# nexthop) - firmware state on the port itself, synchronously, for good.
+#
+# Nothing in the qdisc path can undo that. The reset is sent from one place
+# only, the tc-action free path, asynchronously; and both undo calls
+# (nss_ifb_reset_nexthop, nss_ifb_clear_igs_node) return success without
+# sending anything once the ifb is no longer mapped. So every remove+add cycle
+# rolls the dice on leaving a physical port pointing at a firmware node that no
+# longer forwards, and the port then goes quiet with everything reading fine.
+#
+# Hence the rule this file is built around: a redirect that already points at
+# the right ifb is NEVER torn down. Do not "simplify" this back into a
+# teardown-and-rebuild; the churn is the bug.
+
+redirect_present() {
+	# -F: a port name may contain a dot, and this has to be an exact match.
+	tc filter show dev "$1" parent ffff: 2>/dev/null |
+		grep -qF "nssmirred ($1 to device $2)"
+}
+
+ensure_redirect() {
+	local port=$1 dev=$2
+	local try err
+
+	if redirect_present "$port" "$dev"; then
+		sqm_debug "ensure_redirect: ${port} -> ${dev} already in place, left untouched"
+		return 0
+	fi
+
+	# Whatever is on ffff: now is stale or points elsewhere. The ingress
+	# qdisc owns the filter, so dropping it is how it gets cleared.
+	SILENT=1 $TC qdisc del dev "$port" ingress
+	$TC qdisc add dev "$port" handle ffff: ingress || return 1
+
+	for try in 1 2 3; do
+		# act_nssmirred's release is deferred, so a re-add can race the
+		# previous action's teardown and be rejected with -EEXIST while
+		# the firmware still holds the old mapping. Not silenced: WHY the
+		# action refused is the entire diagnosis of a redirect that never
+		# comes up, and only $TC's own error logging carries tc's message.
+		# Plain tc, not $TC, because the reason for the refusal decides
+		# whether retrying is sane and cmd_wrapper keeps it in a local.
+		err=$(tc filter add dev "$port" parent ffff: protocol all \
+			u32 match u32 0 0 action nssmirred redirect dev "$dev" fromdev "$port" 2>&1) &&
+			return 0
+		# Only EEXIST is worth another go: it means the deferred release of
+		# the previous action has not landed yet. Anything else - above all a
+		# firmware message timeout - is not fixed by waiting, and every
+		# attempt re-enters a path that holds RTNL while the firmware
+		# answers, so a blind retry multiplies an outage instead of curing it.
+		case "$err" in
+		*"File exists"*)
+			sqm_debug "ensure_redirect: ${port} -> ${dev} attempt ${try} hit EEXIST, retrying"
+			sleep 1 ;;
+		*)
+			sqm_error "ensure_redirect: ${port} -> ${dev} refused: ${err}"
+			break ;;
+		esac
+	done
+
+	sqm_error "ensure_redirect: ${port} -> ${dev} could not be installed"
+	SILENT=1 $TC qdisc del dev "$port" ingress
+	return 1
+}
+
+# Dropping the ingress qdisc takes the filter with it, and the filter's action
+# free path is the only thing that ever resets the firmware nexthop - so this
+# is the only teardown that can undo a redirect at all.
+drop_redirect() {
+	SILENT=1 $TC qdisc del dev "$1" ingress
+}
+
+# A virtual netdev of ours, as opposed to a physical port that happens to have
+# been given the same name.
+ifb_exists() {
+	[ -e "/sys/devices/virtual/net/$1" ]
+}
+
+# The IFB device outlives its tree on purpose: deleting and recreating one
+# under traffic can panic the box, so teardown only ever removes its qdisc.
+ensure_ifb() {
+	if ! ifb_exists "$1"; then
+		$IP link add name "$1" type ifb || return 1
+		sqm_log "ensure_ifb: created $1"
+	fi
+	# Bit 0 of the sysfs flags is IFF_UP. Bringing an already-up device up
+	# is a kernel no-op, but the rule in this file is to touch nothing that
+	# is already right, and a converge that issues no command at all is one
+	# that cannot have broken anything.
+	[ $(( $(cat "/sys/class/net/$1/flags" 2>/dev/null || echo 0) & 1 )) = 1 ] ||
+		$IP link set dev "$1" up
+}
+
+
+# --- per-port upload trees (option igs_upload) -------------------------------
+
+# Empty when the port's link rate cannot be read. Shaping such a port at the
+# full WAN share would sit far above its real line rate, which just moves the
+# queue into the switch where no AQM reaches it - and the redirect it would
+# cost is a firmware write on a physical port whose undo can silently do
+# nothing. Nothing re-derives this later, so a guess made now is permanent.
+igs_rate() {
+	local port=$1 rate=$2
+	local pspeed pcap
+
+	pspeed=$(cat "${IGS_SYSFS_NET:-/sys/class/net}/${port}/speed" 2>/dev/null)
+	[ "${pspeed:-0}" -gt 0 ] 2>/dev/null || return 1
+	pcap=$((pspeed * 1000 * IGS_LINK_PCT / 100))
+	[ "$pcap" -lt "$rate" ] && rate=$pcap
+	echo "$rate"
+}
+
+# Every LAN port this section currently owns an upload shaper on: an
+# ifb-<port> device with our redirect pointing into it. Derived from live state
+# and not from the config, because the config is the thing that may have
+# changed - and the redirect is firmware state on the physical port, not
+# something a later stop would go looking for once the port left the list.
+igs_live() {
+	local d port
+	for d in "${IGS_SYSFS_NET:-/sys/class/net}"/ifb-*; do
+		[ -e "$d" ] || continue
+		port=${d##*/ifb-}
+		# The redirect is the usual marker, but a failed start can leave the
+		# ifb carrying a tree with no redirect at all, and that shaper node
+		# would then be invisible here and leak until the box reboots.
+		# Anchored on nsstbl so a foreign ifb is never adopted.
+		if redirect_present "$port" "ifb-${port}" ||
+			tc qdisc show dev "ifb-${port}" 2>/dev/null |
+				head -n1 | grep -q '^qdisc nsstbl'; then
+			printf '%s ' "$port"
+		fi
+	done
+}
+
+# Every LAN port that ANY enabled queue section asks for. A live port is only
+# ours to release when no section wants it: the devices are named after the
+# port, not after the section, so a per-section view would have one section
+# tearing down another's IGS trees on its next converge.
+igs_wanted() (
+	set -f	# uci prints extended refs like sqm.@queue[0]; never glob one
+
+	for s in $(uci -q show sqm | sed -n 's/^sqm\.\([^.=]*\)=queue$/\1/p'); do
+		[ "$(uci -q get "sqm.${s}.enabled")" = 1 ] || continue
+		printf '%s ' $(uci -q get "sqm.${s}.igs_upload")
+	done
+)
+
+# Ports carrying one of our upload shapers that nothing asks for any more.
+# $1: ports the caller is about to build, always treated as wanted. Seeding it
+# this way makes self-churn structurally impossible: igs_wanted re-reads uci and
+# gates `enabled` as a string compare where run.sh uses an arithmetic one, so
+# the two can disagree (`option enabled '01'`) - and a section that decided it
+# was disabled would release and instantly re-create every one of its own
+# redirects, which is the exact opposite of what this file exists to guarantee.
+igs_orphans() {
+	local wanted port
+	wanted=" $1 $(igs_wanted) "
+	for port in $(igs_live); do
+		case "$wanted" in *" $port "*) continue ;; esac
+		printf '%s ' "$port"
+	done
+}
+
+upload_igs_start() {
+	local ports port dev rate limit share pct spec
+	local mtu
+
+	ports=$(sqm_opt igs_upload)
+
+	# The shaped interface already carries the ingress redirect built by
+	# ingress(), and a port has exactly one ingress qdisc to hang it on.
+	# Listing it here would have the two paths tear down and re-create each
+	# other's redirect on every start, for ever, each one rolling the
+	# firmware's synchronous message wait. The help text has always said
+	# "LAN ports"; enforce it instead of trusting it.
+	for port in $ports; do
+		[ "$port" = "$IFACE" ] || continue
+		sqm_warn "upload_igs: ${port} is the shaped interface itself, ignoring it"
+		ports=$(echo " $ports " | sed "s/ ${IFACE} / /g")
+	done
+
+	# Converging means removing what should no longer be there, not only
+	# adding what should. A port dropped from igs_upload would otherwise
+	# keep shaping at a stale rate behind a redirect nothing manages, and
+	# only a reboot would clear the firmware side. Runs before the
+	# empty-list return so that emptying igs_upload cleans up too.
+	for port in $(igs_orphans "$ports"); do
+		sqm_log "upload_igs: ${port} is no longer configured, removing its shaper"
+		drop_redirect "$port"
+		SILENT=1 $TC qdisc del dev "ifb-${port}" root
+	done
+
+	[ -z "$ports" ] && return 0
+
+	pct=$(sqm_opt igs_rate_pct)
+	case "$pct" in
+	''|*[!0-9]*) pct=$IGS_RATE_PCT ;;
+	esac
+	[ "$pct" -ge 50 ] && [ "$pct" -le 100 ] 2>/dev/null || pct=$IGS_RATE_PCT
+	share=$((UPLINK * pct / 100))
+
+	# These trees shape what the port hands the switch: plain tagged
+	# Ethernet, still without the WAN encapsulation that gets added later.
+	mtu=1514
+
+	for port in $ports; do
+		dev=$(printf '%.15s' "ifb-${port}")
+		if [ ! -e "${IGS_SYSFS_NET:-/sys/class/net}/${port}" ]; then
+			sqm_warn "upload_igs: port ${port} does not exist, skipping"
+			continue
+		fi
+
+		rate=$(igs_rate "$port" "$share") || {
+			sqm_warn "upload_igs: ${port} has no readable link rate, skipping"
+			continue
+		}
+		limit=$(calc_limit ${rate} ${mtu} ${MAXQLIMIT_MS})
+
+		ensure_ifb "$dev" || {
+			sqm_warn "upload_igs: cannot create ${dev}, skipping ${port}"
+			continue
+		}
+		# Redirect first: the firmware rejects a shaper on an IFB that
+		# nothing redirects into (device-proven, nsstbl comes back
+		# EINVAL). It also means the shaper below can be rebuilt on its
+		# own later without the redirect being touched.
+		ensure_redirect "$port" "$dev" || {
+			sqm_warn "upload_igs: redirect ${port} -> ${dev} failed, skipping"
+			continue
+		}
+
+		spec=$(tree_spec 0 ${rate} "5ms" ${limit} ${mtu} "" "" ${ESHAPER_BURST_DUR_US})
+		if ensure_tree "$dev" "$spec"; then
+			sqm_log "upload_igs: ${port} -> ${dev} shaping at ${rate} kbps (per-flow isolated)"
+		else
+			sqm_warn "upload_igs: shaper on ${dev} failed, removing the redirect on ${port}"
+			drop_redirect "$port"
+		fi
+	done
+	return 0
+}
+
+upload_igs_stop() {
+	local port dev
+
+	# The configured list plus whatever we actually own: a port that left
+	# igs_upload is still ours to take down, and a stop that went by the
+	# config alone would strand its redirect. Dropping twice is harmless.
+	for port in $(sqm_opt igs_upload) $(igs_orphans); do
+		dev=$(printf '%.15s' "ifb-${port}")
+		drop_redirect "$port"
+		ifb_exists "$dev" && SILENT=1 $TC qdisc del dev "$dev" root
+	done
+	return 0
+}
+
+
+# --- the two WAN directions --------------------------------------------------
+
+egress() {
+	local mtu spec fast=0
+
+	[ -z "$ETARGET" ] && ETARGET="5ms"
+	mtu=$(calc_effective_mtu "egress")
+	[ -z "$ELIMIT" ] && ELIMIT=$(calc_limit ${UPLINK} ${mtu} ${MAXQLIMIT_MS})
+	fastlane_enabled && fast=1
+
+	spec=$(tree_spec ${fast} ${UPLINK} "${ETARGET}" ${ELIMIT} ${mtu} \
+		"${EQDISC_OPTS}" "${EECN}" ${ESHAPER_BURST_DUR_US})
+	ensure_tree "$IFACE" "$spec" || return 1
+
+	[ "$fast" = 1 ] &&
+		sqm_log "egress: fast lane active (mark: ip dscp set <class> meta priority set 100:0)"
+	return 0
+}
+
+ingress() {
+	local mtu spec fast=0
+
+	[ -z "$ITARGET" ] && ITARGET="5ms"
+	mtu=$(calc_effective_mtu "ingress")
+	[ -z "$ILIMIT" ] && ILIMIT=$(calc_limit ${DOWNLINK} ${mtu} ${MAXQLIMIT_MS})
+	fastlane_enabled && fast=1
+
+	ensure_ifb "$DEV" || {
+		sqm_error "ingress: ${DEV} could not be brought up"
+		return 1
+	}
+	ensure_redirect "$IFACE" "$DEV" || {
+		sqm_error "ingress: no redirect ${IFACE} -> ${DEV}, cannot shape ingress"
+		return 1
+	}
+
+	spec=$(tree_spec ${fast} ${DOWNLINK} "${ITARGET}" ${ILIMIT} ${mtu} \
+		"${IQDISC_OPTS}" "${IECN}" ${ISHAPER_BURST_DUR_US})
+	if ! ensure_tree "$DEV" "$spec"; then
+		# Never leave the port feeding a shaper that is not there.
+		drop_redirect "$IFACE"
+		return 1
+	fi
+
+	[ "$fast" = 1 ] && sqm_log "ingress: fast lane active"
+	return 0
+}
+
+
+# --- entry points ------------------------------------------------------------
+
+sqm_prepare_script() {
+	local module
+
+	case "$(cat /sys/kernel/debug/qca-ppe-nss/fw_mask 2>/dev/null)" in
+	""|0x0)
+		sqm_error "sqm_prepare_script: NSS data plane is not armed; refusing to load NSS qdisc modules"
+		return 1
+		;;
+	esac
+
+	if [ ! -d /sys/module/ifb ]; then
+		insmod ifb numifbs=0 2>>"${OUTPUT_TARGET}" || {
+			sqm_error "sqm_prepare_script: failed to load ifb module"
+			return 1
+		}
+	fi
+
+	for module in qca_nss_qdisc act_nssmirred; do
+		if [ ! -d /sys/module/$module ]; then
+			sqm_log "sqm_prepare_script: loading $module"
+			modprobe -v $module 2>>"${OUTPUT_TARGET}" || {
+				sqm_error "sqm_prepare_script: failed to load $module"
+				return 1
+			}
+		fi
+	done
+}
+
+sqm_start() {
+	local protocol rc=0
+
+	[ -n "$IFACE" ] || return 1
+
+	network_get_protocol protocol "$IFACE"
+	if [ "$protocol" = "wireguard" ]; then
+		sqm_error "sqm_start: Wireguard (${IFACE}) is not supported by NSS"
+		return 1
+	fi
+
+	DEV=$(printf '%.15s' "ifb@${IFACE}")
+
+	ipt_log_restart
+	# Neither of these two builds anything, but both still have to leave the
+	# wire empty, because start-sqm writes the state file only on success and
+	# run.sh's stop path is `[ -f state ] && stop-sqm`: a tree that outlives
+	# its state file cannot be removed again by an ifdown, by the init script
+	# or by LuCI. Taking the shaper off a WAN port that has no address, or
+	# whose firmware nodes went away with the data plane, is right anyway -
+	# that tree drops the discovery frames the reconnect is made of.
+	check_addr && sqm_prepare_script || { sqm_stop; return 1; }
+
+	if [ "${UPLINK}" -eq 0 ]; then
+		SILENT=1 $TC qdisc del dev "$IFACE" root
+		upload_igs_stop
+		sqm_log "sqm_start: egress shaping disabled (UPLINK=0)"
+	else
+		CUR_DIRECTION="egress"
+		if egress; then
+			sqm_log "sqm_start: egress shaping activated"
+			# Per-port upload trees are an add-on and stay
+			# non-fatal: refusing the whole start over one port
+			# would leave no state file, and then every hotplug
+			# event would rebuild the WAN tree and re-create its
+			# redirects - the churn this design exists to avoid.
+			upload_igs_start
+		else
+			rc=1	# the rollback below removes the IGS trees too
+		fi
+	fi
+
+	# Only if the other direction still stands: a failure takes both of them
+	# down a few lines below, and installing an ingress redirect costs a
+	# firmware nexthop write on the physical port even when the tree above it
+	# is removed a moment later - the one thing this file must not spend.
+	if [ "$rc" -eq 0 ]; then
+		if [ "${DOWNLINK}" -eq 0 ]; then
+			drop_redirect "$IFACE"
+			SILENT=1 $TC qdisc del dev "$DEV" root
+			sqm_log "sqm_start: ingress shaping disabled (DOWNLINK=0)"
+		else
+			CUR_DIRECTION="ingress"
+			if ingress; then
+				sqm_log "sqm_start: ingress shaping activated"
+			else
+				rc=1
+			fi
+		fi
+	fi
+
+	if [ "$rc" -ne 0 ]; then
+		# No state file will be written, so this has to leave nothing
+		# behind either: a shaper nobody has a state file for survives
+		# the next ifdown, and a tree left on a port whose connection
+		# is gone is what turns a lost link into a permanent one.
+		sqm_error "sqm_start: ${IFACE} could not be set up as configured, removing every shaper again"
+		sqm_stop
+	fi
+	return $rc
+}
+
+sqm_stop() {
+	[ -n "$IFACE" ] || return 1
+
+	DEV=$(printf '%.15s' "ifb@${IFACE}")
+	sqm_log "sqm_stop: tearing down SQM on ${IFACE} (${DEV})"
+
+	# The exact reverse of the build, and within each pair the redirect goes
+	# first: a port still feeding a shaper that is already gone is the one
+	# state that black-holes it.
+	drop_redirect "$IFACE"
+	if ifb_exists "$DEV"; then
+		SILENT=1 $TC qdisc del dev "$DEV" root
+		sqm_log "sqm_stop: removed $DEV qdisc (device kept for reuse)"
+	fi
+
+	upload_igs_stop
+
+	SILENT=1 $TC qdisc del dev "$IFACE" root
+
+	ipt_log_rewind
+
+	sqm_debug "sqm_stop: keeping NSS modules loaded (safer for restart)"
+
+	return 0
+}
+
+# `run.sh cleanup` would otherwise fall through to sqm-scripts' own
+# sqm_cleanup, which deletes the IFB device - and doing that under traffic can
+# panic the box.
+sqm_cleanup() {
+	sqm_stop
+}

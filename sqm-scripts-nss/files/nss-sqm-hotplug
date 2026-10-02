@@ -1,0 +1,137 @@
+#!/bin/sh
+# sqm-scripts' own iface hotplug (11-sqm) starts a queue section only when
+# its 'interface' option names the event's L3 netdev ($DEVICE) or a bridge
+# port of it. The NSS shaper must sit on the physical WAN port below the
+# VLAN/PPPoE encapsulation (the firmware refuses shaper nodes on the ppp
+# netdev), so such a section names a LOWER device of $DEVICE and 11-sqm
+# never starts it. Converge those sections here.
+#
+# Both halves of 11-sqm are needed, not just the start. A shaper left on the
+# port after the interface goes down is what turns a lost connection into a
+# permanent one: the tree keeps stealing and dropping the discovery frames
+# the reconnect is made of, so the interface can never come back up - and the
+# ifup that would have rebuilt the tree is the very thing being prevented.
+# Taking the tree off on ifdown breaks that loop; the ifup below puts it back.
+#
+# But only the EGRESS root has to come off, not the section. The frame a
+# reconnect depends on is an outgoing PADI, and the only thing between it and
+# the wire is the port's own root qdisc. The ingress side cannot block it, and
+# the per-LAN-port IGS trees have nothing to do with PPPoE discovery at all.
+# Tearing the whole section down would re-create four act_nssmirred redirects
+# on the next ifup, and every one of those re-creates rolls the dice on the
+# firmware nexthop it leaves behind on a physical port (see ensure_redirect in
+# nss-edma.qos). A flap must not spend that. So a flap over a healthy tree
+# costs one del and the four adds that rebuild the egress tree - no redirect
+# is touched, and no nexthop is written.
+#
+# The ifup half deliberately does NOT stop first. nss-edma.qos' sqm_start
+# converges: it reads what is on the wire, compares it against the config and
+# touches only what genuinely differs - so a healthy tree, and above all a
+# healthy ingress redirect, come through an ifup untouched. A stop/start pair
+# would instead re-create every redirect, and each re-create rolls the dice on
+# the firmware nexthop it leaves behind on the physical port (see
+# ensure_redirect in nss-edma.qos). The state file is only sqm-scripts'
+# start-once latch, so clearing it is simply how the converge gets to run;
+# start-sqm writes it back as soon as sqm_start reports success.
+
+case "$ACTION" in ifup|ifdown) ;; *) exit 0 ;; esac
+/etc/init.d/sqm enabled || exit 0
+
+. /lib/functions.sh
+. /lib/functions/network.sh
+. /etc/sqm/sqm.conf		# SQM_STATE_DIR
+[ -n "$SQM_STATE_DIR" ] || exit 0
+
+# The device stack below the interface the event is about: netifd's L2 device
+# plus its transitive sysfs lowers (VLAN -> port -> conduit). PPP netdevs
+# carry no lower links, so the walk starts from the L2 device, not $DEVICE.
+# A down interface has no ubus device left to report, so fall back to the
+# configured one - on ifdown that is the only way to find the port at all.
+network_get_physdev phys "$INTERFACE"
+[ -n "$phys" ] || phys=$(uci -q get "network.${INTERFACE}.device")
+[ -n "$phys" ] || exit 0
+
+lowers=""
+# By the time an ifdown is delivered the encapsulation is already dismantled,
+# so the walk starts at a name whose lower links no longer exist - or which
+# no longer exists at all. A VLAN device spells its base device out in its
+# own name, and that base is the physical port the shaper sits on, so seed
+# the walk with it as well. Without a suffix the two seeds are the same name
+# and the walk is unchanged.
+walk="$phys ${phys%.*}"
+while [ -n "$walk" ]; do
+	next=""
+	for d in $walk; do
+		lowers="$lowers $d"
+		for l in "/sys/class/net/$d/lower_"*; do
+			[ -e "$l" ] && next="$next ${l##*/lower_}"
+		done
+	done
+	walk="$next"
+done
+
+nss_sqm_converge() {
+	local queue="$1" enabled iface state
+	config_get_bool enabled "$queue" enabled 0
+	config_get iface "$queue" interface
+	[ "$enabled" = 1 ] || return 0
+	# run.sh reads an empty interface name as "every section", so a section
+	# with none would turn one iface event into a global start or stop.
+	[ -n "$iface" ] || return 0
+	[ "$iface" != "$DEVICE" ] || return 0	# 11-sqm covers that case
+	case " $lowers " in
+	*" $iface "*) ;;
+	*) return 0 ;;
+	esac
+
+	if [ "$ACTION" = ifdown ]; then
+		# A shaper left on the port after the interface goes down is what
+		# turns a lost connection into a permanent one - but only if it
+		# drops what it is handed. An NSS root forwards as soon as a leaf
+		# below it carries set_default, and ensure_tree's readback means a
+		# tree that got installed at all is complete, so the usual case is
+		# harmless and the reconnect leaves over it untouched.
+		#
+		# What is not harmless is a root with no default leaf: it drops
+		# 100% of what it is handed, PPPoE discovery included, so the ifup
+		# that would rebuild it can never arrive. Nothing here produces
+		# that state any more, but an older build, a half-finished manual
+		# tc or a crashed run still can, and it is the one state from
+		# which the box cannot talk its own way out. Clear it, and only it.
+		#
+		# Deliberately NOT a blanket teardown: rebuilding costs four
+		# firmware nodes on every reconnect for no gain, and the firmware
+		# stall this used to be insurance against is not cured by removing
+		# the tree - a wedged port stays wedged with noqueue on it, which
+		# is exactly how it has been observed in the field.
+		#
+		# The state file stays put either way; the ifup below re-converges.
+		case "$(tc qdisc show dev "$iface" 2>/dev/null | head -n1)" in
+		"qdisc nss"*)
+			tc qdisc show dev "$iface" 2>/dev/null | grep -q set_default ||
+				tc qdisc del dev "$iface" root 2>/dev/null
+			;;
+		esac
+		return 0
+	fi
+
+	# Clearing sqm-scripts' start-once latch is simply how the converge gets
+	# to run, but it must never be gone while a shaper is up: run.sh's stop
+	# path is `[ -f state ] && stop-sqm`, so in that window nothing can take
+	# the shaper off the port again - not the ifdown above, not the init
+	# script, not LuCI. So move it aside rather than delete it, and put it
+	# back if the start left something on the port without writing a fresh
+	# one of its own (it never gets that far if it cannot take run.sh's lock).
+	# Either the port carries a shaper and a state file, or it carries
+	# neither; a latch with no tree behind it would only block the next start.
+	state="${SQM_STATE_DIR}/${iface}.state"
+	[ -f "$state" ] && mv "$state" "${state}.converge"
+	/usr/lib/sqm/run.sh start "$iface"
+	[ -f "$state" ] ||
+		! tc qdisc show dev "$iface" 2>/dev/null | grep -qE '^qdisc (nss|ingress)' ||
+		mv "${state}.converge" "$state" 2>/dev/null
+	rm -f "${state}.converge"
+}
+
+config_load sqm || exit 0
+config_foreach nss_sqm_converge queue
