@@ -1,0 +1,5751 @@
+From: Julius Bairaktaris <julius@bairaktaris.de>
+Subject: [PATCH] treewide: build only for Linux 6.18 and 7.3
+
+Drop every LINUX_VERSION_CODE branch for kernels older than 6.18 and
+fold the per-version compatibility patches into this one. compat.h goes
+too: its users say const and strscpy() directly and include
+<linux/vmalloc.h> where they call it.
+
+The IGS mirred action counts overlimits with
+tcf_action_inc_overlimit_qstats(), which 7.3 kept when it renamed
+qstats_overlimit_inc().
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+---
+
+--- a/Makefile
++++ b/Makefile
+@@ -10,7 +10,8 @@ qca-nss-tun6rd-objs := nss_connmgr_tun6r
+ ccflags-y += -DNSS_TUN6RD_DEBUG_LEVEL=0
+ ccflags-y += -Wall -Werror
+ 
+-KERNELVERSION := $(word 1, $(subst ., ,$(KERNELVERSION))).$(word 2, $(subst ., ,$(KERNELVERSION)))
++# Kernel 6.12 compatibility
++ccflags-y += -Wno-missing-prototypes
+ 
+ obj-$(bridge-mgr)+= bridge/
+ obj-$(capwapmgr)+= capwapmgr/
+--- a/bridge/nss_bridge_mgr.c
++++ b/bridge/nss_bridge_mgr.c
+@@ -1483,7 +1483,7 @@ static struct notifier_block nss_bridge_
+  * nss_bridge_mgr_wan_inf_add_handler
+  *	Marks an interface as a WAN interface for special handling by bridge.
+  */
+-static int nss_bridge_mgr_wan_intf_add_handler(struct ctl_table *table,
++static int nss_bridge_mgr_wan_intf_add_handler(const struct ctl_table *table,
+ 						int write, void __user *buffer,
+ 						size_t *lenp, loff_t *ppos)
+ {
+@@ -1532,7 +1532,7 @@ static int nss_bridge_mgr_wan_intf_add_h
+  * nss_bridge_mgr_wan_inf_del_handler
+  *	Un-marks an interface as a WAN interface.
+  */
+-static int nss_bridge_mgr_wan_intf_del_handler(struct ctl_table *table,
++static int nss_bridge_mgr_wan_intf_del_handler(const struct ctl_table *table,
+ 						int write, void __user *buffer,
+ 						size_t *lenp, loff_t *ppos)
+ {
+@@ -1590,8 +1590,7 @@ static struct ctl_table nss_bridge_mgr_t
+ 		.maxlen         = sizeof(char) * IFNAMSIZ,
+ 		.mode           = 0644,
+ 		.proc_handler   = &nss_bridge_mgr_wan_intf_del_handler,
+-	},
+-	{ }
++	}
+ };
+ 
+ static struct ctl_table nss_bridge_mgr_dir[] = {
+--- a/capwapmgr/Makefile
++++ b/capwapmgr/Makefile
+@@ -13,5 +13,5 @@ obj-m += qca-nss-capwapmgr.o
+ qca-nss-capwapmgr-objs := nss_capwapmgr.o
+ ccflags-y += -DNSS_CAPWAPMGR_DEBUG_LEVEL=6
+ 
+-ccflags-y += $(NSS_CCFLAGS) -DNSS_DEBUG_LEVEL=0 -DNSS_PKT_STATS_ENABLED=0
++ccflags-y += -DNSS_DEBUG_LEVEL=0 -DNSS_PKT_STATS_ENABLED=0
+ ccflags-y += -Wall -Werror
+--- a/capwapmgr/nss_capwapmgr.c
++++ b/capwapmgr/nss_capwapmgr.c
+@@ -28,13 +28,8 @@
+ #include <linux/module.h>
+ #include <linux/skbuff.h>
+ #include <net/ipv6.h>
+-#include <linux/version.h>
+ 
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(3,9,0))
+-#include <net/ipip.h>
+-#else
+ #include <net/ip_tunnels.h>
+-#endif
+ 
+ #include <linux/if_arp.h>
+ #include <linux/etherdevice.h>
+@@ -350,16 +345,6 @@ static struct rtnl_link_stats64 *nss_cap
+ 	return stats;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 6, 0))
+-/*
+- * nss_capwapmgr_dev_tunnel_stats()
+- *	Netdev ops function to retrieve stats for kernel version < 4.6
+- */
+-static struct rtnl_link_stats64 *nss_capwapmgr_dev_tunnel_stats(struct net_device *dev, struct rtnl_link_stats64 *stats)
+-{
+-	return nss_capwapmgr_get_tunnel_stats(dev, stats);
+-}
+-#else
+ /*
+  * nss_capwapmgr_dev_tunnel_stats()
+  *	Netdev ops function to retrieve stats for kernel version > 4.6
+@@ -368,7 +353,6 @@ static void nss_capwapmgr_dev_tunnel_sta
+ {
+ 	nss_capwapmgr_get_tunnel_stats(dev, stats);
+ }
+-#endif
+ 
+ /*
+  * nss_capwapmgr_netdev_ops
+@@ -398,11 +382,7 @@ static void nss_capwapmgr_dummpy_netdev_
+ 	dev->header_ops = NULL;
+ 	dev->netdev_ops = &nss_capwapmgr_netdev_ops;
+ 
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 11, 8))
+-	dev->destructor = NULL;
+-#else
+ 	dev->priv_destructor = NULL;
+-#endif
+ 	memcpy(dev->dev_addr, "\x00\x00\x00\x00\x00\x00", dev->addr_len);
+ 	memset(dev->broadcast, 0xff, dev->addr_len);
+ 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
+@@ -580,13 +560,8 @@ struct net_device *nss_capwapmgr_netdev_
+ 	int i;
+ 	int err;
+ 
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(3, 16, 0))
+-	ndev = alloc_netdev(sizeof(struct nss_capwapmgr_priv),
+-					"nsscapwap%d", nss_capwapmgr_dummpy_netdev_setup);
+-#else
+ 	ndev = alloc_netdev(sizeof(struct nss_capwapmgr_priv),
+ 					"nsscapwap%d", NET_NAME_ENUM, nss_capwapmgr_dummpy_netdev_setup);
+-#endif
+ 	if (!ndev) {
+ 		nss_capwapmgr_warn("Error allocating netdev\n");
+ 		return NULL;
+--- a/clmapmgr/nss_clmapmgr.c
++++ b/clmapmgr/nss_clmapmgr.c
+@@ -19,7 +19,6 @@
+  *  This file implements client for CLient map manager.
+  */
+ 
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+@@ -112,17 +111,6 @@ static struct rtnl_link_stats64 *nss_clm
+ 	return stats;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 6, 0))
+-/*
+- * nss_clmapmgr_dev_stats64()
+- *	Netdev ops function to retrieve stats for kernel version < 4.6
+- */
+-static struct rtnl_link_stats64 *nss_clmapmgr_dev_stats64(struct net_device *dev,
+-						struct rtnl_link_stats64 *tot)
+-{
+-	return nss_clmapmgr_get_dev_stats64(dev, tot);
+-}
+-#else
+ /*
+  * nss_clmapmgr_dev_stats64()
+  *	Netdev ops function to retrieve stats for kernel version >= 4.6
+@@ -132,7 +120,6 @@ static void nss_clmapmgr_dev_stats64(str
+ {
+ 	nss_clmapmgr_get_dev_stats64(dev, tot);
+ }
+-#endif
+ 
+ /*
+  * nss_clmapmgr_dev_init()
+@@ -185,7 +172,7 @@ static void nss_clmapmgr_setup(struct ne
+ {
+ 	char name[IFNAMSIZ] = {0};
+ 
+-	strlcpy(name, "nssclmap%d", IFNAMSIZ);
++	strscpy(name, "nssclmap%d", IFNAMSIZ);
+ 	memcpy(dev->name, name, IFNAMSIZ);
+ 	dev->netdev_ops = &nss_clmapmgr_ops;
+ 	eth_hw_addr_random(dev);
+--- a/dtls/v1.0/Makefile
++++ b/dtls/v1.0/Makefile
+@@ -1,6 +1,6 @@
+ # Makefile for DTLS manager
+ 
+-ccflags-y += $(NSS_CCFLAGS) -I$(obj)/../../exports
++ccflags-y += -I$(obj)/../../exports
+ ccflags-y += -DNSS_DTLSMGR_DEBUG_LEVEL=0
+ 
+ obj-m += qca-nss-dtlsmgr.o
+--- a/dtls/v1.0/nss_connmgr_dtls_netdev.c
++++ b/dtls/v1.0/nss_connmgr_dtls_netdev.c
+@@ -19,7 +19,6 @@
+  *	NSS DTLS Manager netdev module
+  */
+ 
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/ip.h>
+ #include <linux/tcp.h>
+@@ -176,14 +175,9 @@ nss_dtlsmgr_status_t nss_dtlsmgr_netdev_
+ 	struct nss_dtlsmgr_netdev_priv *priv;
+ 	int32_t err = 0;
+ 
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(3, 16, 0))
+-	dev = alloc_netdev(sizeof(struct nss_dtlsmgr_netdev_priv),
+-			   "qca-nss-dtls%d", nss_dtlsmgr_dev_setup);
+-#else
+ 	dev = alloc_netdev(sizeof(struct nss_dtlsmgr_netdev_priv),
+ 			   "qca-nss-dtls%d", NET_NAME_UNKNOWN,
+ 			   nss_dtlsmgr_dev_setup);
+-#endif
+ 
+ 	if (!dev) {
+ 		nss_dtlsmgr_info("DTLS netdev alloc failed\n");
+--- a/dtls/v2.0/Makefile
++++ b/dtls/v2.0/Makefile
+@@ -1,6 +1,6 @@
+ # Makefile for DTLS manager
+ 
+-ccflags-y += $(NSS_CCFLAGS) -I$(obj)/../../exports
++ccflags-y += -I$(obj)/../../exports
+ ccflags-y += -DNSS_DTLSMGR_DEBUG_LEVEL=0
+ ccflags-y += -DNSS_DTLSMGR_BUILD_ID=\"'Build_ID - $(shell date +'%m/%d/%y, %H:%M:%S') SoC=$(SoC)'\"
+ ccflags-y += -Wall -Werror
+--- a/dtls/v2.0/nss_dtlsmgr_ctx.c
++++ b/dtls/v2.0/nss_dtlsmgr_ctx.c
+@@ -50,6 +50,7 @@
+ #include <nss_cryptoapi.h>
+ #include <nss_dtls_cmn.h>
+ #include <nss_dtlsmgr.h>
++#include <linux/vmalloc.h>
+ 
+ #include "nss_dtlsmgr_private.h"
+ 
+--- a/dtls/v2.0/nss_dtlsmgr_ctx_dev.c
++++ b/dtls/v2.0/nss_dtlsmgr_ctx_dev.c
+@@ -19,7 +19,6 @@
+  *	NSS DTLS Manager context device
+  */
+ 
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/ip.h>
+ #include <linux/tcp.h>
+@@ -472,17 +471,10 @@ static struct rtnl_link_stats64 *nss_dtl
+  * nss_dtlsmgr_ctx_dev_stats64()
+  *	Report packet statistics to Linux.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0))
+-static struct rtnl_link_stats64 *nss_dtlsmgr_ctx_dev_stats64(struct net_device *dev, struct rtnl_link_stats64 *stats)
+-{
+-	return nss_dtlsmgr_ctx_get_dev_stats64(dev, stats);
+-}
+-#else
+ static void nss_dtlsmgr_ctx_dev_stats64(struct net_device *dev, struct rtnl_link_stats64 *stats)
+ {
+ 	nss_dtlsmgr_ctx_get_dev_stats64(dev, stats);
+ }
+-#endif
+ 
+ /*
+  * nss_dtlsmgr_ctx_dev_change_mtu()
+@@ -521,11 +513,7 @@ void nss_dtlsmgr_ctx_dev_setup(struct ne
+ 	dev->ethtool_ops = NULL;
+ 	dev->header_ops = NULL;
+ 	dev->netdev_ops = &nss_dtlsmgr_ctx_dev_ops;
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 11, 8))
+-	dev->destructor = nss_dtlsmgr_ctx_dev_free;
+-#else
+ 	dev->priv_destructor = nss_dtlsmgr_ctx_dev_free;
+-#endif
+ 	memcpy(dev->dev_addr, "\xaa\xbb\xcc\xdd\xee\xff", dev->addr_len);
+ 	memset(dev->broadcast, 0xff, dev->addr_len);
+ 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
+--- a/dtls/v2.0/nss_dtlsmgr_ctx_stats.c
++++ b/dtls/v2.0/nss_dtlsmgr_ctx_stats.c
+@@ -29,6 +29,7 @@
+ 
+ #include <nss_api_if.h>
+ #include <nss_dtlsmgr.h>
++#include <linux/vmalloc.h>
+ 
+ #include "nss_dtlsmgr_private.h"
+ 
+--- a/gre/nss_connmgr_gre.c
++++ b/gre/nss_connmgr_gre.c
+@@ -19,7 +19,6 @@
+  *  This file implements client for GRE.
+  */
+ 
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+@@ -274,20 +273,12 @@ static struct rtnl_link_stats64 *nss_con
+ 		const struct pcpu_sw_netstats *tstats = per_cpu_ptr(dev->tstats, i);
+ 
+ 		do {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 15, 0))
+-			start = u64_stats_fetch_begin_bh(&tstats->syncp);
+-#else
+ 			start = u64_stats_fetch_begin_irq(&tstats->syncp);
+-#endif
+ 			rx_packets = tstats->rx_packets;
+ 			tx_packets = tstats->tx_packets;
+ 			rx_bytes = tstats->rx_bytes;
+ 			tx_bytes = tstats->tx_bytes;
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 15, 0))
+-		} while (u64_stats_fetch_retry_bh(&tstats->syncp, start));
+-#else
+ 		} while (u64_stats_fetch_retry_irq(&tstats->syncp, start));
+-#endif
+ 
+ 		tot->rx_packets += rx_packets;
+ 		tot->tx_packets += tx_packets;
+@@ -301,17 +292,6 @@ static struct rtnl_link_stats64 *nss_con
+ 	return tot;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 6, 0))
+-/*
+- * nss_connmgr_gre_dev_stats64()
+- *	Netdev ops function to retrieve stats for kernel version < 4.6
+- */
+-static struct rtnl_link_stats64 *nss_connmgr_gre_dev_stats64(struct net_device *dev,
+-						struct rtnl_link_stats64 *tot)
+-{
+-	return nss_connmgr_gre_get_dev_stats64(dev, tot);
+-}
+-#else
+ /*
+  * nss_connmgr_gre_dev_stats64()
+  *	Netdev ops function to retrieve stats
+@@ -321,7 +301,6 @@ static void nss_connmgr_gre_dev_stats64(
+ {
+ 	nss_connmgr_gre_get_dev_stats64(dev, tot);
+ }
+-#endif
+ 
+ /*
+  * nss_connmgr_gre_dev_open()
+@@ -724,10 +703,10 @@ static void nss_connmgr_gre_make_name(st
+ {
+ 	switch (cfg->mode) {
+ 	case GRE_MODE_TUN:
+-		strlcpy(name, "tun-%d", IFNAMSIZ);
++		strscpy(name, "tun-%d", IFNAMSIZ);
+ 		break;
+ 	case GRE_MODE_TAP:
+-		strlcpy(name, "tap-%d", IFNAMSIZ);
++		strscpy(name, "tap-%d", IFNAMSIZ);
+ 		break;
+ 	default:
+ 		break;
+@@ -757,18 +736,14 @@ static struct net_device *__nss_connmgr_
+ 	int ret = -1, retry, next_if_num_inner = 0, next_if_num_outer = 0;
+ 
+ 	if (cfg->name) {
+-		strlcpy(name, cfg->name, IFNAMSIZ);
++		strscpy(name, cfg->name, IFNAMSIZ);
+ 	} else {
+ 		nss_connmgr_gre_make_name(cfg, name);
+ 	}
+ 
+ 	switch (cfg->mode) {
+ 	case GRE_MODE_TUN:
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0))
+-		dev = alloc_netdev(sizeof(nss_connmgr_gre_priv_t), name, nss_connmgr_gre_tun_setup);
+-#else
+ 		dev = alloc_netdev(sizeof(nss_connmgr_gre_priv_t), name, NET_NAME_UNKNOWN, nss_connmgr_gre_tun_setup);
+-#endif
+ 
+ 		if (!dev) {
+ 			nss_connmgr_gre_warning("Allocation of netdev failed\n");
+--- a/gre/nss_connmgr_gre_v4.c
++++ b/gre/nss_connmgr_gre_v4.c
+@@ -218,7 +218,7 @@ int nss_connmgr_gre_v4_set_config(struct
+ 
+ 	nss_connmgr_gre_set_gre_flags(cfg, &t->parms.o_flags, &t->parms.i_flags);
+ 
+-	strlcpy(t->parms.name, dev->name, IFNAMSIZ);
++	strscpy(t->parms.name, dev->name, IFNAMSIZ);
+ 	t->dev = dev;
+ 	return GRE_SUCCESS;
+ }
+--- a/gre/nss_connmgr_gre_v6.c
++++ b/gre/nss_connmgr_gre_v6.c
+@@ -20,7 +20,6 @@
+  *  This file implements client for GRE implementation.
+  */
+ 
+-#include <linux/version.h>
+ #include <linux/netdevice.h>
+ #include <linux/inetdevice.h>
+ #include <linux/etherdevice.h>
+@@ -41,11 +40,7 @@
+  */
+ static inline struct rt6_info *nss_connmgr_gre_v6_route_lookup(struct net *net, struct in6_addr *addr)
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 6, 0))
+-        return rt6_lookup(net, addr, NULL, 0, 0);
+-#else
+ 	return rt6_lookup(net, addr, NULL, 0, 0, 0);
+-#endif
+ }
+ 
+ /*
+@@ -113,11 +108,7 @@ static int nss_connmgr_gre_v6_get_mac_ad
+ 		return GRE_ERR_NEIGH_LOOKUP;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(3,6,0))
+-	neigh = rt->dst.ops->neigh_lookup(&rt->dst, &dst_addr);
+-#else
+ 	neigh = rt->dst.ops->neigh_lookup(&rt->dst, NULL, &dst_addr);
+-#endif
+ 	if (neigh) {
+ 		if (!(neigh->nud_state & NUD_VALID) || !is_valid_ether_addr(neigh->ha)) {
+ 			nss_connmgr_gre_warning("neigh state is either invalid (%x) or mac address is null (%pM) for %pI6", neigh->nud_state, neigh->ha, dest_ip);
+@@ -132,11 +123,7 @@ static int nss_connmgr_gre_v6_get_mac_ad
+ 		 * Issue a Neighbour soliciation request
+ 	 	*/
+ 		nss_connmgr_gre_info("Issue Neighbour solicitation request\n");
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0))
+-		ndisc_send_ns(local_dev, &dst_addr, &mc_dst_addr, &src_addr);
+-#else
+ 		ndisc_send_ns(local_dev, &dst_addr, &mc_dst_addr, &src_addr, 0);
+-#endif
+ 		msleep(2000);
+ 
+ 		/*
+@@ -150,11 +137,7 @@ static int nss_connmgr_gre_v6_get_mac_ad
+ 			return GRE_ERR_NEIGH_LOOKUP;
+ 		}
+ 
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(3,6,0))
+-		neigh = rt->dst.ops->neigh_lookup(&rt->dst, &dst_addr);
+-#else
+ 		neigh = rt->dst.ops->neigh_lookup(&rt->dst, NULL, &dst_addr);
+-#endif
+ 
+ 		if (!neigh) {
+ 			ip6_rt_put(rt);
+@@ -323,7 +306,7 @@ int nss_connmgr_gre_v6_set_config(struct
+ 
+ 	nss_connmgr_gre_set_gre_flags(cfg, &t->parms.o_flags, &t->parms.i_flags);
+ 
+-	strlcpy(t->parms.name, dev->name, IFNAMSIZ);
++	strscpy(t->parms.name, dev->name, IFNAMSIZ);
+ 	t->dev = dev;
+ 	return GRE_SUCCESS;
+ }
+--- a/gre/test/nss_connmgr_gre_test.c
++++ b/gre/test/nss_connmgr_gre_test.c
+@@ -143,7 +143,7 @@ static ssize_t nss_connmgr_gre_test_writ
+ 		 * parameter parsing for delete command
+ 		 */
+ 		if (!strcmp(param, "dev")) {
+-			strlcpy(dev_name, value, IFNAMSIZ);
++			strscpy(dev_name, value, IFNAMSIZ);
+ 			dev_name_valid = true;
+ 			break;
+ 		}
+@@ -153,19 +153,19 @@ static ssize_t nss_connmgr_gre_test_writ
+ 		 * tap create command
+ 		 */
+ 		if (!strcmp(param, "next_dev")) {
+-			strlcpy(dev_name, value, IFNAMSIZ);
++			strscpy(dev_name, value, IFNAMSIZ);
+ 			dev_name_valid = true;
+ 			continue;
+ 		}
+ 
+ 		if (!strcmp(param, "saddr")) {
+-			strlcpy(saddr, value, 20);
++			strscpy(saddr, value, 20);
+ 			saddr_valid = true;
+ 			continue;
+ 		}
+ 
+ 		if (!strcmp(param, "daddr")) {
+-			strlcpy(daddr, value, 20);
++			strscpy(daddr, value, 20);
+ 			daddr_valid = true;
+ 			continue;
+ 		}
+--- a/ipsecmgr/v1.0/nss_ipsecmgr.c
++++ b/ipsecmgr/v1.0/nss_ipsecmgr.c
+@@ -17,7 +17,6 @@
+ /* nss_ipsecmgr.c
+  *	NSS to HLOS IPSec Manager
+  */
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/ip.h>
+ #include <linux/of.h>
+@@ -887,11 +886,7 @@ struct net_device *nss_ipsecmgr_tunnel_a
+ 	struct net_device *dev;
+ 	int status;
+ 
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
+-	dev = alloc_netdev(sizeof(struct nss_ipsecmgr_priv), NSS_IPSECMGR_TUN_NAME, nss_ipsecmgr_tunnel_setup);
+-#else
+ 	dev = alloc_netdev(sizeof(struct nss_ipsecmgr_priv), NSS_IPSECMGR_TUN_NAME, NET_NAME_ENUM, nss_ipsecmgr_tunnel_setup);
+-#endif
+ 	if (!dev) {
+ 		nss_ipsecmgr_error("unable to allocate a tunnel device\n");
+ 		return NULL;
+@@ -1277,11 +1272,7 @@ static int __init nss_ipsecmgr_init(void
+ 	ipsecmgr_ctx->encap_ifnum = nss_ipsec_get_encap_interface();
+ 	ipsecmgr_ctx->decap_ifnum = nss_ipsec_get_decap_interface();
+ 
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
+-	ipsecmgr_ctx->ndev = alloc_netdev(0, NSS_IPSECMGR_DEFAULT_TUN_NAME, nss_ipsecmgr_dummy_netdevice_setup);
+-#else
+ 	ipsecmgr_ctx->ndev = alloc_netdev(0, NSS_IPSECMGR_DEFAULT_TUN_NAME, NET_NAME_UNKNOWN, nss_ipsecmgr_dummy_netdevice_setup);
+-#endif
+ 	if (!ipsecmgr_ctx->ndev) {
+ 		nss_ipsecmgr_info_always("Ipsec: Could not allocate ipsec net_device\n");
+ 		goto free;
+--- a/ipsecmgr/v2.0/Makefile
++++ b/ipsecmgr/v2.0/Makefile
+@@ -1,6 +1,6 @@
+ # Makefile for the ipsecmgr v2.0 client
+ 
+-ccflags-y += $(NSS_CCFLAGS) -I$(obj)/../../exports
++ccflags-y += -I$(obj)/../../exports
+ ccflags-y += -DNSS_CLIENT_BUILD_ID="$(BUILD_ID)"
+ ccflags-y += -Wall -Werror
+ 
+--- a/ipsecmgr/v2.0/nss_ipsecmgr.c
++++ b/ipsecmgr/v2.0/nss_ipsecmgr.c
+@@ -17,7 +17,6 @@
+ /* nss_ipsecmgr.c
+  *	IPSec Manager
+  */
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/ip.h>
+ #include <linux/of.h>
+@@ -86,11 +85,7 @@ static void nss_ipsecmgr_dummy_setup(str
+ 	 * transform.
+ 	 */
+ 	dev->mtu = ETH_DATA_LEN;
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 11, 8))
+-	dev->destructor = nss_ipsecmgr_dummy_free;
+-#else
+ 	dev->priv_destructor = nss_ipsecmgr_dummy_free;
+-#endif
+ }
+ 
+ /*
+@@ -288,10 +283,6 @@ static int __init nss_ipsecmgr_init(void
+ 	return 0;
+ 
+ free:
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 11, 8))
+-	if (dev)
+-		dev->destructor(dev);
+-#endif
+ 	vfree(ipsecmgr_drv);
+ 	ipsecmgr_drv = NULL;
+ 	return -1;
+--- a/ipsecmgr/v2.0/nss_ipsecmgr_priv.h
++++ b/ipsecmgr/v2.0/nss_ipsecmgr_priv.h
+@@ -21,7 +21,6 @@
+ 
+ #include <net/ipv6.h>
+ #include <linux/lockdep.h>
+-#include <linux/version.h>
+ 
+ #define NSS_IPSECMGR_DEBUG_LVL_ERROR 1		/**< Turn on debug for an error. */
+ #define NSS_IPSECMGR_DEBUG_LVL_WARN 2		/**< Turn on debug for a warning. */
+@@ -81,13 +80,8 @@
+ /*
+  * Check if lock is held
+  */
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 14, 196))
+-#define nss_ipsecmgr_write_lock_is_held(x) BUG_ON(write_can_lock(x))
+-#define nss_ipsecmgr_lock_is_held(x) BUG_ON(read_can_lock(x))
+-#else
+ #define nss_ipsecmgr_lock_is_held(x) lockdep_assert_held(x)
+ #define nss_ipsecmgr_write_lock_is_held(x) lockdep_assert_held_write(x)
+-#endif
+ 
+ /*
+  * Statistics dump information
+--- a/ipsecmgr/v2.0/nss_ipsecmgr_tunnel.c
++++ b/ipsecmgr/v2.0/nss_ipsecmgr_tunnel.c
+@@ -17,7 +17,6 @@
+ /* nss_ipsecmgr.c
+  *	NSS to HLOS IPSec Manager
+  */
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/ip.h>
+ #include <linux/of.h>
+@@ -251,17 +250,10 @@ static struct rtnl_link_stats64 *nss_ips
+  * nss_ipsecmgr_tunnel_stats64()
+  *	Sync statistics to linux
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0))
+-static struct rtnl_link_stats64 *nss_ipsecmgr_tunnel_stats64(struct net_device *dev, struct rtnl_link_stats64 *stats)
+-{
+-	return nss_ipsecmgr_tunnel_get_stats64(dev, stats);
+-}
+-#else
+ static void nss_ipsecmgr_tunnel_stats64(struct net_device *dev, struct rtnl_link_stats64 *stats)
+ {
+ 	nss_ipsecmgr_tunnel_get_stats64(dev, stats);
+ }
+-#endif
+ 
+ /*
+  * nss_ipsecmgr_tunnel_mtu_update()
+@@ -436,11 +428,7 @@ static void nss_ipsecmgr_tunnel_setup(st
+ 	dev->header_ops = NULL;
+ 	dev->netdev_ops = &ipsecmgr_dev_ops;
+ 
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 11, 8))
+-	dev->destructor = nss_ipsecmgr_tunnel_free;
+-#else
+ 	dev->priv_destructor = nss_ipsecmgr_tunnel_free;
+-#endif
+ 
+ 	/*
+ 	 * Get the MAC address from the ethernet device
+@@ -617,14 +605,10 @@ struct net_device *nss_ipsecmgr_tunnel_a
+ 	status = rtnl_is_locked() ? register_netdevice(dev) : register_netdev(dev);
+ 	if (status < 0) {
+ 		nss_ipsecmgr_warn("%px: register net dev failed :%s\n", tun, dev->name);
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 11, 8))
+-		goto free;
+-#else
+ 		/*
+ 		 * Later kernels invoke the destructor upon failure
+ 		 */
+ 		return NULL;
+-#endif
+ 	}
+ 
+ 	write_lock_bh(&ipsecmgr_drv->lock);
+@@ -646,11 +630,7 @@ struct net_device *nss_ipsecmgr_tunnel_a
+ 
+ 	return dev;
+ free:
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 11, 8))
+-	dev->destructor(dev);
+-#else
+ 	dev->priv_destructor(dev);
+-#endif
+ 	return NULL;
+ }
+ EXPORT_SYMBOL(nss_ipsecmgr_tunnel_add);
+--- a/ipsecmgr/v2.0/plugins/xfrm/nss_ipsec_xfrm.c
++++ b/ipsecmgr/v2.0/plugins/xfrm/nss_ipsec_xfrm.c
+@@ -15,7 +15,6 @@
+  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+  */
+ 
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+@@ -42,6 +41,7 @@
+ #endif
+ #if defined(NSS_VXLAN_ENABLED)
+ #include <nss_vxlanmgr.h>
++#include <linux/vmalloc.h>
+ #endif
+ #include "nss_ipsec_xfrm_tunnel.h"
+ #include "nss_ipsec_xfrm_sa.h"
+@@ -799,11 +799,7 @@ static int nss_ipsec_xfrm_state_notify(s
+ 	int refcnt = -1;
+ 
+ 	if (x) {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		refcnt = atomic_read(&x->refcnt);
+-#else
+ 		refcnt = refcount_read(&x->refcnt);
+-#endif
+ 	}
+ 
+ 	nss_ipsec_xfrm_info("%p(%d): event %d hard %d\n", x, refcnt, c->event, c->data.hard);
+@@ -1104,93 +1100,6 @@ static int nss_ipsec_xfrm_encap_v4(struc
+ 	return 0;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-/*
+- * nss_ipsec_xfrm_v4_init_flags()
+- *	Initialize xfrm state flags
+- */
+-static int nss_ipsec_xfrm_v4_init_flags(struct xfrm_state *x)
+-{
+-	struct nss_ipsec_xfrm_drv *drv = &g_ipsec_xfrm;
+-
+-	nss_ipsec_xfrm_trace("%px: Redirect to native xfrm stack\n", x);
+-	return drv->xsa.v4->init_flags(x);
+-}
+-
+-/*
+- * nss_ipsec_xfrm_v4_init_sel()
+- *	Initialize xfrm state selector
+- */
+-static void nss_ipsec_xfrm_v4_init_sel(struct xfrm_selector *sel, const struct flowi *fl)
+-{
+-	struct nss_ipsec_xfrm_drv *drv = &g_ipsec_xfrm;
+-
+-	nss_ipsec_xfrm_trace("%px: Redirect to native xfrm stack\n", sel);
+-	return drv->xsa.v4->init_tempsel(sel, fl);
+-}
+-
+-/*
+- * nss_ipsec_xfrm_v4_init_param()
+- *	Initialize xfrm state parameters
+- */
+-static void nss_ipsec_xfrm_v4_init_param(struct xfrm_state *x, const struct xfrm_tmpl *tmpl,
+-		const xfrm_address_t *daddr, const xfrm_address_t *saddr)
+-{
+-	struct nss_ipsec_xfrm_drv *drv = &g_ipsec_xfrm;
+-
+-	nss_ipsec_xfrm_trace("%px: Redirect to native xfrm stack\n", x);
+-	return drv->xsa.v4->init_temprop(x, tmpl, daddr, saddr);
+-}
+-
+-/*
+- * nss_ipsec_xfrm_v6_init_sel()
+- *	Initialize xfrm state selector
+- */
+-static void nss_ipsec_xfrm_v6_init_sel(struct xfrm_selector *sel, const struct flowi *fl)
+-{
+-	struct nss_ipsec_xfrm_drv *drv = &g_ipsec_xfrm;
+-
+-	nss_ipsec_xfrm_trace("%px: Redirect to native xfrm stack\n", sel);
+-	return drv->xsa.v6->init_tempsel(sel, fl);
+-}
+-
+-/*
+- * nss_ipsec_xfrm_v6_init_param()
+- *	Initialize xfrm state parameters
+- */
+-static void nss_ipsec_xfrm_v6_init_param(struct xfrm_state *x, const struct xfrm_tmpl *tmpl,
+-		const xfrm_address_t *daddr, const xfrm_address_t *saddr)
+-{
+-	struct nss_ipsec_xfrm_drv *drv = &g_ipsec_xfrm;
+-
+-	nss_ipsec_xfrm_trace("%px: Redirect to native xfrm stack\n", x);
+-	return drv->xsa.v6->init_temprop(x, tmpl, daddr, saddr);
+-}
+-
+-/*
+- * nss_ipsec_xfrm_v6_sort_tmpl()
+- *	Distribution couting sort for xfrm state template
+- */
+-static int nss_ipsec_xfrm_v6_sort_tmpl(struct xfrm_tmpl **dst, struct xfrm_tmpl **src, int n)
+-{
+-	struct nss_ipsec_xfrm_drv *drv = &g_ipsec_xfrm;
+-
+-	nss_ipsec_xfrm_trace("%px: Redirect to native xfrm stack\n", dst);
+-	return drv->xsa.v6->tmpl_sort(dst, src, n);
+-}
+-
+-/*
+- * nss_ipsec_xfrm_v6_sort_state()
+- *	Distribution couting sort for xfrm state
+- */
+-static int nss_ipsec_xfrm_v6_sort_state(struct xfrm_state **dst, struct xfrm_state **src, int n)
+-{
+-	struct nss_ipsec_xfrm_drv *drv = &g_ipsec_xfrm;
+-
+-	nss_ipsec_xfrm_trace("%px: Redirect to native xfrm stack\n", dst);
+-	return drv->xsa.v6->state_sort(dst, src, n);
+-}
+-#endif
+ 
+ /*
+  * nss_ipsec_xfrm_v4_output()
+@@ -1324,18 +1233,10 @@ uint32_t nss_ipsec_xfrm_esp_get_mtu(stru
+ 
+ 	if (x->props.family == AF_INET) {
+ 		ip_len = sizeof(struct iphdr);
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		fallback_fn = drv->xsa.v4->type_map[IPPROTO_ESP]->get_mtu;
+-#else
+ 		fallback_fn = drv->xsa.v4->type_esp->get_mtu;
+-#endif
+ 	} else {
+ 		ip_len = sizeof(struct ipv6hdr);
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		fallback_fn = drv->xsa.v6->type_map[IPPROTO_ESP]->get_mtu;
+-#else
+ 		fallback_fn = drv->xsa.v6->type_esp->get_mtu;
+-#endif
+ 	}
+ 
+ 	/*
+@@ -1498,17 +1399,9 @@ static int nss_ipsec_xfrm_esp_input(stru
+ 	struct nss_ipsec_xfrm_drv *drv = &g_ipsec_xfrm;
+ 
+ 	if (x->props.family == AF_INET) {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		fallback_fn = drv->xsa.v4->type_map[IPPROTO_ESP]->input;
+-#else
+ 		fallback_fn = drv->xsa.v4->type_esp->input;
+-#endif
+ 	} else {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		fallback_fn = drv->xsa.v6->type_map[IPPROTO_ESP]->input;
+-#else
+ 		fallback_fn = drv->xsa.v6->type_esp->input;
+-#endif
+ 	}
+ 
+ 	nss_ipsec_xfrm_trace("%px: Redirect to native stack\n", skb);
+@@ -1528,17 +1421,9 @@ static int nss_ipsec_xfrm_esp_output(str
+ 	struct nss_ipsec_xfrm_drv *drv = &g_ipsec_xfrm;
+ 
+ 	if (x->props.family == AF_INET) {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		fallback_fn = drv->xsa.v4->type_map[IPPROTO_ESP]->output;
+-#else
+ 		fallback_fn = drv->xsa.v4->type_esp->output;
+-#endif
+ 	} else {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		fallback_fn = drv->xsa.v6->type_map[IPPROTO_ESP]->output;
+-#else
+ 		fallback_fn = drv->xsa.v6->type_esp->output;
+-#endif
+ 	}
+ 
+ 	nss_ipsec_xfrm_trace("%px: Redirect to native stack\n", skb);
+@@ -1620,19 +1505,11 @@ static int nss_ipsec_xfrm_esp4_err(struc
+ 			return 0;
+ 		}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		ipv4_update_pmtu(skb, net, info, 0, 0, IPPROTO_ESP, 0);
+-#else
+ 		ipv4_update_pmtu(skb, net, info, 0, IPPROTO_ESP);
+-#endif
+ 		break;
+ 
+ 	case ICMP_REDIRECT:
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		ipv4_redirect(skb, net, 0, 0, IPPROTO_ESP, 0);
+-#else
+ 		ipv4_redirect(skb, net, 0, IPPROTO_ESP);
+-#endif
+ 		break;
+ 
+ 	default:
+@@ -1814,11 +1691,7 @@ static  int nss_ipsec_xfrm_v6_esp_hdr_of
+ 	struct nss_ipsec_xfrm_drv *drv = &g_ipsec_xfrm;
+ 
+ 	nss_ipsec_xfrm_trace("%px: Redirect to native esp6 stack\n", skb);
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	return drv->xsa.v6->type_map[IPPROTO_ESP]->hdr_offset(x, skb, prevhdr);
+-#else
+ 	return drv->xsa.v6->type_esp->hdr_offset(x, skb, prevhdr);
+-#endif
+ }
+ 
+ /*
+@@ -1878,17 +1751,9 @@ static int nss_ipsec_xfrm_esp6_err(struc
+ 	}
+ 
+ 	if (type == NDISC_REDIRECT) {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		ip6_redirect(skb, net, skb->dev->ifindex, 0);
+-#else
+ 		ip6_redirect(skb, net, skb->dev->ifindex, 0, sock_net_uid(net, NULL));
+-#endif
+ 	} else {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		ip6_update_pmtu(skb, net, info, 0, 0);
+-#else
+ 		ip6_update_pmtu(skb, net, info, 0, 0, sock_net_uid(net, NULL));
+-#endif
+ 	}
+ 
+ 	nss_ipsec_xfrm_sa_deref(sa);
+@@ -2038,12 +1903,6 @@ static struct xfrm_mgr nss_ipsec_xfrm_mg
+ static struct xfrm_state_afinfo xfrm_v4_afinfo = {
+ 	.family = AF_INET,
+ 	.proto = IPPROTO_IPIP,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	.eth_proto = htons(ETH_P_IP),
+-	.init_flags = nss_ipsec_xfrm_v4_init_flags,
+-	.init_tempsel = nss_ipsec_xfrm_v4_init_sel,
+-	.init_temprop = nss_ipsec_xfrm_v4_init_param,
+-#endif
+ 	.output = nss_ipsec_xfrm_v4_output,
+ 	.output_finish = nss_ipsec_xfrm_v4_output_finish,
+ 	.extract_input = nss_ipsec_xfrm_v4_extract_input,
+@@ -2052,41 +1911,6 @@ static struct xfrm_state_afinfo xfrm_v4_
+ 	.local_error = nss_ipsec_xfrm_v4_local_error,
+ };
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-/*
+- * IPv4 xfrm_mode object
+- */
+-struct xfrm_mode xfrm_v4_mode_map[XFRM_MODE_MAX] = {
+-	[XFRM_MODE_TRANSPORT] = {
+-		.owner = THIS_MODULE,
+-		.encap = XFRM_MODE_TRANSPORT,
+-	},
+-	[XFRM_MODE_TUNNEL] = {
+-		.owner = THIS_MODULE,
+-		.encap = XFRM_MODE_TUNNEL,
+-		.flags = XFRM_MODE_FLAG_TUNNEL,
+-	},
+-};
+-
+-/*
+- * IPv6 xfrm_mode object
+- */
+-struct xfrm_mode xfrm_v6_mode_map[XFRM_MODE_MAX] = {
+-	[XFRM_MODE_ROUTEOPTIMIZATION] = {
+-		.owner = THIS_MODULE,
+-		.encap = XFRM_MODE_ROUTEOPTIMIZATION,
+-	},
+-	[XFRM_MODE_TRANSPORT] = {
+-		.owner = THIS_MODULE,
+-		.encap = XFRM_MODE_TRANSPORT,
+-	},
+-	[XFRM_MODE_TUNNEL] = {
+-		.owner = THIS_MODULE,
+-		.encap = XFRM_MODE_TUNNEL,
+-		.flags = XFRM_MODE_FLAG_TUNNEL,
+-	},
+-};
+-#endif
+ 
+ /*
+  * IPv4 xfrm_type ESP object.
+@@ -2120,13 +1944,6 @@ static struct xfrm4_protocol xfrm4_proto
+ static struct xfrm_state_afinfo xfrm_v6_afinfo = {
+ 	.family = AF_INET6,
+ 	.proto = IPPROTO_IPV6,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	.eth_proto = htons(ETH_P_IPV6),
+-	.init_tempsel = nss_ipsec_xfrm_v6_init_sel,
+-	.init_temprop = nss_ipsec_xfrm_v6_init_param,
+-	.tmpl_sort = nss_ipsec_xfrm_v6_sort_tmpl,
+-	.state_sort = nss_ipsec_xfrm_v6_sort_state,
+-#endif
+ 	.output = nss_ipsec_xfrm_v6_output,
+ 	.output_finish = nss_ipsec_xfrm_v6_output_finish,
+ 	.extract_input = nss_ipsec_xfrm_v6_extract_input,
+@@ -2175,37 +1992,19 @@ static void nss_ipsec_xfrm_restore_afinf
+ 	if (family == AF_INET) {
+ 		base = &xfrm_v4_type;
+ 		afinfo = drv->xsa.v4;
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		xfrm_unregister_mode(&xfrm_v4_mode_map[XFRM_MODE_TUNNEL], AF_INET);
+-		xfrm_unregister_mode(&xfrm_v4_mode_map[XFRM_MODE_TRANSPORT], AF_INET);
+-#endif
+ 	} else {
+ 		base = &xfrm_v6_type;
+ 		afinfo = drv->xsa.v6;
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		xfrm_unregister_mode(&xfrm_v6_mode_map[XFRM_MODE_TUNNEL], AF_INET6);
+-		xfrm_unregister_mode(&xfrm_v6_mode_map[XFRM_MODE_TRANSPORT], AF_INET6);
+-		xfrm_unregister_mode(&xfrm_v6_mode_map[XFRM_MODE_ROUTEOPTIMIZATION], AF_INET6);
+-#endif
+ 	}
+ 
+ 	BUG_ON(!afinfo);
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	type_ah = afinfo->type_map[IPPROTO_AH];
+-	type_comp = afinfo->type_map[IPPROTO_COMP];
+-	type_ipip = afinfo->type_map[IPPROTO_IPIP];
+-	type_ipv6 = afinfo->type_map[IPPROTO_IPV6];
+-	type_dstopts = afinfo->type_map[IPPROTO_DSTOPTS];
+-	type_routing = afinfo->type_map[IPPROTO_ROUTING];
+-#else
+ 	type_ah = afinfo->type_ah;
+ 	type_comp = afinfo->type_comp;
+ 	type_ipip = afinfo->type_ipip;
+ 	type_ipv6 = afinfo->type_ipip6;
+ 	type_dstopts = afinfo->type_dstopts;
+ 	type_routing = afinfo->type_routing;
+-#endif
+ 	/*
+ 	 * Unregister types
+ 	 */
+@@ -2252,39 +2051,21 @@ static void nss_ipsec_xfrm_override_afin
+ 	if (family == AF_INET) {
+ 		base = &xfrm_v4_type;
+ 		afinfo = drv->xsa.v4 = xfrm_state_update_afinfo(AF_INET, &xfrm_v4_afinfo);
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		xfrm_register_mode(&xfrm_v4_mode_map[XFRM_MODE_TRANSPORT], AF_INET);
+-		xfrm_register_mode(&xfrm_v4_mode_map[XFRM_MODE_TUNNEL], AF_INET);
+-#endif
+ 	} else {
+ 		base = &xfrm_v6_type;
+ 		afinfo = drv->xsa.v6 = xfrm_state_update_afinfo(AF_INET6, &xfrm_v6_afinfo);
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		xfrm_register_mode(&xfrm_v6_mode_map[XFRM_MODE_ROUTEOPTIMIZATION], AF_INET6);
+-		xfrm_register_mode(&xfrm_v6_mode_map[XFRM_MODE_TRANSPORT], AF_INET6);
+-		xfrm_register_mode(&xfrm_v6_mode_map[XFRM_MODE_TUNNEL], AF_INET6);
+-#endif
+ 	}
+ 
+ 	BUG_ON(!afinfo);
+ 
+ 	xfrm_register_type(base, family);
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	type_ah = afinfo->type_map[IPPROTO_AH];
+-	type_comp = afinfo->type_map[IPPROTO_COMP];
+-	type_ipip = afinfo->type_map[IPPROTO_IPIP];
+-	type_ipv6 = afinfo->type_map[IPPROTO_IPV6];
+-	type_dstopts = afinfo->type_map[IPPROTO_DSTOPTS];
+-	type_routing = afinfo->type_map[IPPROTO_ROUTING];
+-#else
+ 	type_ah = afinfo->type_ah;
+ 	type_comp = afinfo->type_comp;
+ 	type_ipip = afinfo->type_ipip;
+ 	type_ipv6 = afinfo->type_ipip6;
+ 	type_dstopts = afinfo->type_dstopts;
+ 	type_routing = afinfo->type_routing;
+-#endif
+ 	/*
+ 	 * Register types
+ 	 */
+--- a/ipsecmgr/v2.0/plugins/xfrm/nss_ipsec_xfrm_sa.c
++++ b/ipsecmgr/v2.0/plugins/xfrm/nss_ipsec_xfrm_sa.c
+@@ -13,7 +13,6 @@
+  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+  */
+ 
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+@@ -312,11 +311,7 @@ bool nss_ipsec_xfrm_sa_sp_set(struct nss
+ 	/*
+ 	 * Allocate a new SP for the incoming SKB
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0))
+-	skb->sp = sp = secpath_dup(NULL);
+-#else
+ 	sp = secpath_set(skb);
+-#endif
+ 	if(!sp) {
+ 		xfrm_state_put(x);
+ 		return false;
+--- a/ipsecmgr/v2.0/plugins/xfrm/nss_ipsec_xfrm_tunnel.c
++++ b/ipsecmgr/v2.0/plugins/xfrm/nss_ipsec_xfrm_tunnel.c
+@@ -13,7 +13,6 @@
+  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+  */
+ 
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/kernel.h>
+ #include <linux/slab.h>
+@@ -297,11 +296,7 @@ struct nss_ipsec_xfrm_tunnel *nss_ipsec_
+ 		 break;
+ 
+ 	case AF_INET6:
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		rt6 = rt6_lookup(&init_net, &remote->in6, NULL, 0, 0);
+-#else
+ 		rt6 = rt6_lookup(&init_net, &remote->in6, NULL, 0, 0, 0);
+-#endif
+ 		if (!rt6) {
+ 			nss_ipsec_xfrm_err("Failed to allocate tunnel; No IPv6 dst found\n");
+ 			return NULL;
+--- a/l2tp/l2tpv2/nss_connmgr_l2tpv2.c
++++ b/l2tp/l2tpv2/nss_connmgr_l2tpv2.c
+@@ -319,7 +319,7 @@ static struct nss_connmgr_l2tpv2_session
+ 	 */
+ 	dev_hold(dev);
+ 	l2tpv2_session_data->dev = dev;
+-	strlcpy(session->ifname, dev->name, IFNAMSIZ);
++	strscpy(session->ifname, dev->name, IFNAMSIZ);
+ 
+ 	/*
+ 	 * There is no need for protecting simultaneous addition &
+--- a/l2tp/l2tpv2/nss_connmgr_l2tpv2.h
++++ b/l2tp/l2tpv2/nss_connmgr_l2tpv2.h
+@@ -27,21 +27,13 @@
+ #include <linux/in.h>
+ #include <linux/socket.h>
+ #include <linux/types.h>
+-#include <linux/version.h>
+ 
+ #define L2TP_V_2 2
+ 
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 12, 0))
+-#define tunnel_hold(tunnel) atomic_inc(&tunnel->ref_count)
+-#define tunnel_put(tunnel)  atomic_dec(&tunnel->ref_count)
+-#define session_hold(session) atomic_inc(&session->ref_count)
+-#define session_put(session)  atomic_dec(&session->ref_count)
+-#else
+ #define tunnel_hold(tunnel) refcount_inc(&tunnel->ref_count)
+ #define tunnel_put(tunnel)  refcount_dec(&tunnel->ref_count)
+ #define session_hold(session) refcount_inc(&session->ref_count)
+ #define session_put(session)  refcount_dec(&session->ref_count)
+-#endif
+ 
+  /*
+   *		----------------------------------------------------------------------------------
+--- a/l2tp/l2tpv2/nss_l2tpv2_stats.c
++++ b/l2tp/l2tpv2/nss_l2tpv2_stats.c
+@@ -31,7 +31,6 @@
+ #include <net/sock.h>
+ #include <linux/if_pppox.h>
+ #include <linux/ppp_defs.h>
+-#include <linux/version.h>
+ #include <linux/../../net/l2tp/l2tp_core.h>
+ 
+ #include "nss_connmgr_l2tpv2.h"
+@@ -108,22 +107,6 @@ void nss_l2tpv2_update_dev_stats(struct
+ 	/*
+ 	 * Update tunnel & session stats
+ 	 */
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 12, 0))
+-	tunnel = l2tp_tunnel_find(dev_net(dev), data.l2tpv2.tunnel.tunnel_id);
+-	if (!tunnel) {
+-		dev_put(dev);
+-		return;
+-	}
+-	tunnel_hold(tunnel);
+-
+-	session = l2tp_session_find(dev_net(dev), tunnel, data.l2tpv2.session.session_id);
+-	if (!session) {
+-		tunnel_put(tunnel);
+-		dev_put(dev);
+-		return;
+-	}
+-	session_hold(session);
+-#else
+ 	tunnel = l2tp_tunnel_get(dev_net(dev), data.l2tpv2.tunnel.tunnel_id);
+ 	if (!tunnel) {
+ 		dev_put(dev);
+@@ -135,7 +118,6 @@ void nss_l2tpv2_update_dev_stats(struct
+ 		dev_put(dev);
+ 		return;
+ 	}
+-#endif
+ 
+ 	atomic_long_set(&l2tp_stats.tx_packets, (long)sync_stats->node_stats.tx_packets);
+ 	atomic_long_set(&l2tp_stats.tx_bytes, (long)sync_stats->node_stats.tx_bytes);
+--- a/map/map-t/nss_connmgr_map_t.c
++++ b/map/map-t/nss_connmgr_map_t.c
+@@ -27,7 +27,6 @@
+ #include <linux/rwlock_types.h>
+ #include <linux/inetdevice.h>
+ #include <linux/if_arp.h>
+-#include <linux/version.h>
+ #include <linux/list_sort.h>
+ #include <linux/ipv6.h>
+ #include <linux/debugfs.h>
+@@ -937,11 +936,7 @@ static int nss_connmgr_map_t_dev_event(s
+ 		unsigned long event, void *dev)
+ {
+ 	struct net_device *netdev;
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(3, 10, 0))
+-	netdev = (struct net_device *)dev;
+-#else
+ 	netdev = netdev_notifier_info_to_dev(dev);
+-#endif
+ 
+ 	/*
+ 	 * Check for map-t device
+--- a/mirror/Makefile
++++ b/mirror/Makefile
+@@ -1,8 +1,8 @@
+ # Makefile for NSS MIRROR
+ 
+-ccflags-y += $(NSS_CCFLAGS) -I$(obj)/../exports
++ccflags-y += -I$(obj)/../exports
+ ccflags-y += -DNSS_MIRROR_DEBUG_LEVEL=2
+-ccflags-y += -Wall -Werror
++ccflags-y += -Wall
+ 
+ obj-m += qca-nss-mirror.o
+ qca-nss-mirror-objs := \
+--- a/mirror/nss_mirror.c
++++ b/mirror/nss_mirror.c
+@@ -16,13 +16,13 @@
+  ***************************************************************************
+  */
+ 
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/module.h>
+ #include <linux/netdevice.h>
+ 
+ #include <nss_api_if.h>
+ #include <nss_cmn.h>
++#include <linux/vmalloc.h>
+ 
+ #include "nss_mirror.h"
+ 
+@@ -180,17 +180,6 @@ static struct rtnl_link_stats64 *nss_mir
+ 	return stats;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 6, 0))
+-/*
+- * nss_mirror_netdev_stats64()
+- *	Netdev ops function to retrieve stats for kernel version < 4.6
+- */
+-static struct rtnl_link_stats64 *nss_mirror_netdev_stats64(struct net_device *dev,
+-						struct rtnl_link_stats64 *tot)
+-{
+-	return nss_mirror_get_stats(dev, tot);
+-}
+-#else
+ /*
+  * nss_mirror_netdev_stats64()
+  *	Netdev ops function to retrieve stats
+@@ -200,7 +189,6 @@ static void nss_mirror_netdev_stats64(st
+ {
+ 	nss_mirror_get_stats(dev, tot);
+ }
+-#endif
+ 
+ /*
+  * nss_mirror_netdev_ops
+--- a/mirror/nss_mirror_ctl.c
++++ b/mirror/nss_mirror_ctl.c
+@@ -18,6 +18,7 @@
+ 
+ #include <linux/sysctl.h>
+ #include <linux/string.h>
++#include <linux/vmalloc.h>
+ 
+ #include "nss_mirror_public.h"
+ #include "nss_mirror.h"
+@@ -132,7 +133,7 @@ static int nss_mirror_ctl_get_netdev_by_
+ {
+ 	char dev_name[IFNAMSIZ] = {0};
+ 
+-	strlcpy(dev_name, name, IFNAMSIZ);
++	strscpy(dev_name, name, IFNAMSIZ);
+ 	if (dev_name[strlen(dev_name) - 1] == '\n') {
+ 		dev_name[strlen(dev_name) - 1] = '\0';
+ 	}
+@@ -357,7 +358,7 @@ static int nss_mirror_ctl_parse_display_
+ 		return -1;
+ 	}
+ 
+-	strlcpy(dev_name, value, IFNAMSIZ);
++	strscpy(dev_name, value, IFNAMSIZ);
+ 	if (dev_name[strlen(dev_name) - 1] == '\n') {
+ 		dev_name[strlen(dev_name) - 1] = '\0';
+ 	}
+@@ -480,7 +481,12 @@ static int nss_mirror_ctl_parse_enable_i
+ 	type = nss_dynamic_interface_get_type(nss_ctx, if_num);
+ 
+ 	if (type == NSS_DYNAMIC_INTERFACE_TYPE_VAP) {
+-		status = nss_wifi_vdev_set_next_hop(nss_wifi_get_context(), if_num, mirror_if_num);
++		/*
++		 * Legacy (pre-wifili) wifi vdevs only exist on ipq806x-class
++		 * firmware; the wifi subsystem backing them is not built here.
++		 */
++		nss_mirror_warn("Legacy wifi vdev nexthop not supported. if_num: %u\n", if_num);
++		return -1;
+ 	} else if (if_num < NSS_MAX_PHYSICAL_INTERFACES) {
+ 		status = nss_phys_if_set_nexthop(nss_ctx, if_num, mirror_if_num);
+ 	} else {
+@@ -754,8 +760,8 @@ static int32_t nss_mirror_ctl_parse_cmd(
+  * nss_mirror_ctl_config_handler()
+  *	Mirror sysctl config handler.
+  */
+-static int nss_mirror_ctl_config_handler(struct ctl_table *ctl, int write,
+-		 void __user *buf, size_t *lenp, loff_t *ppos)
++static int nss_mirror_ctl_config_handler(const struct ctl_table *ctl, int write,
++		 void *buf, size_t *lenp, loff_t *ppos)
+ {
+ 	char *buffer, *pfree;
+ 	char * nextarg;
+@@ -778,10 +784,7 @@ static int nss_mirror_ctl_config_handler
+ 
+ 	pfree = buffer;
+ 
+-	if (copy_from_user(buffer, buf, count)) {
+-		vfree(pfree);
+-		return -EFAULT;
+-	}
++	memcpy(buffer, buf, count);
+ 
+ 	nextarg = nss_mirror_ctl_read_nextarg(&buffer);
+ 	if (!nextarg) {
+@@ -914,44 +917,7 @@ static struct ctl_table nss_mirror_table
+ 		.maxlen		= sizeof(nss_mirror_config_data),
+ 		.mode		= 0644,
+ 		.proc_handler	= &nss_mirror_ctl_config_handler,
+-	},
+-	{ }
+-};
+-
+-/*
+- * nss mirror dir
+- */
+-static struct ctl_table nss_mirror_root_dir[] = {
+-	{
+-		.procname		= "mirror",
+-		.mode			= 0555,
+-		.child			= nss_mirror_table,
+-	},
+-	{ }
+-};
+-
+-/*
+- * nss mirror sysctl nss root dir
+- */
+-static struct ctl_table nss_mirror_nss_root_dir[] = {
+-	{
+-		.procname		= "nss",
+-		.mode			= 0555,
+-		.child			= nss_mirror_root_dir,
+-	},
+-	{ }
+-};
+-
+-/*
+- * nss mirror sysctl root dir
+- */
+-static struct ctl_table nss_mirror_root[] = {
+-	{
+-		.procname		= "dev",
+-		.mode			= 0555,
+-		.child			= nss_mirror_nss_root_dir,
+-	},
+-	{ }
++	}
+ };
+ 
+ /*
+@@ -960,7 +926,7 @@ static struct ctl_table nss_mirror_root[
+  */
+ int nss_mirror_ctl_register(void)
+ {
+-	nss_mirror_ctl_header = register_sysctl_table(nss_mirror_root);
++	nss_mirror_ctl_header = register_sysctl("dev/nss/mirror", nss_mirror_table);
+ 	if (!nss_mirror_ctl_header) {
+ 		nss_mirror_warn("Creating sysctl directory table header for mirror failed\n");
+ 		return -1;
+--- a/netlink/Makefile
++++ b/netlink/Makefile
+@@ -2,7 +2,7 @@ CAPWAP_ENABLED := $(strip $(if $(filter
+ IPSEC_ENABLED := $(strip $(if $(filter $(ipsecmgr), y), 1 , 0))
+ DTLS_ENABLED := $(strip $(if $(filter $(dtlsmgr), y), 1 , 0))
+ 
+-ccflags-y := -Wall -Werror
++ccflags-y := -Wall
+ ccflags-y += -I$(obj)/include
+ ccflags-y += -I$(obj)/../exports
+ ccflags-y += -DNSS_NL_DEBUG_LEVEL=4
+--- a/netlink/nss_nl.c
++++ b/netlink/nss_nl.c
+@@ -20,7 +20,6 @@
+ #include <linux/netlink.h>
+ #include <linux/of.h>
+ #include <linux/types.h>
+-#include <linux/version.h>
+ #include <net/genetlink.h>
+ 
+ #include <nss_api_if.h>
+@@ -393,7 +392,6 @@ void  *nss_nl_get_data(struct sk_buff *s
+  *
+  * Note: It will free the message buffer if there is no space left to end
+  */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0))
+ int nss_nl_mcast_event(struct genl_family *family, struct sk_buff *skb)
+ {
+ 	struct nss_nlcmn *cm;
+@@ -408,22 +406,6 @@ int nss_nl_mcast_event(struct genl_famil
+ 
+ 	return genlmsg_multicast(family, skb, cm->pid, 0, GFP_ATOMIC);
+ }
+-#else
+-int nss_nl_mcast_event(struct genl_multicast_group *grp, struct sk_buff *skb)
+-{
+-	struct nss_nlcmn *cm;
+-
+-	cm = genlmsg_data(NLMSG_DATA(skb->data));
+-
+-	/*
+-	 * End the message as no more updates are left to happen.
+-	 * After this, the message is assunmed to be read-only
+-	 */
+-	genlmsg_end(skb, cm);
+-
+-	return genlmsg_multicast(skb, cm->pid, grp->id, GFP_ATOMIC);
+-}
+-#endif
+ 
+ /*
+  * nss_nl_ucast_resp()
+@@ -445,15 +427,7 @@ int nss_nl_ucast_resp(struct sk_buff *sk
+ 	 * End the message as no more updates are left to happen
+ 	 * After this message is assumed to be read-only
+ 	 */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0))
+ 	genlmsg_end(skb, cm);
+-#else
+-	if (genlmsg_end(skb, cm) < 0) {
+-		nss_nl_error("%d: unable to close generic ucast message\n", cm->pid);
+-		nlmsg_free(skb);
+-		return -ENOMEM;
+-	}
+-#endif
+ 
+ 	return genlmsg_unicast(net, skb, cm->pid);
+ }
+@@ -467,15 +441,11 @@ struct nss_nlcmn *nss_nl_get_msg(struct
+ 	struct nss_nlcmn *cm;
+ 	uint32_t pid;
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,7,0))
+-	pid =  info->snd_pid;
+-#else
+ 	pid =  info->snd_portid;
+-#endif
+ 	/*
+ 	 * validate the common message header version & magic
+ 	 */
+-	cm = info->userhdr;
++	cm = genl_info_userhdr(info);
+ 	if (nss_nlcmn_chk_ver(cm, family->version) == false) {
+ 		nss_nl_error("%d, %s: version mismatch (%d)\n", pid, family->name, cm->version);
+ 		return NULL;
+--- a/netlink/nss_nl.h
++++ b/netlink/nss_nl.h
+@@ -127,9 +127,5 @@ int nss_nl_ucast_resp(struct sk_buff *sk
+ /*
+  * multicast response to the user
+  */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0))
+ int nss_nl_mcast_event(struct genl_family *family, struct sk_buff *skb);
+-#else
+-int nss_nl_mcast_event(struct genl_multicast_group *grp, struct sk_buff *skb);
+-#endif
+ #endif /* __NSS_NL_H */
+--- a/netlink/nss_nlc2c_rx.c
++++ b/netlink/nss_nlc2c_rx.c
+@@ -22,9 +22,7 @@
+  */
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <linux/notifier.h>
+ 
+@@ -63,9 +61,6 @@ static struct genl_ops nss_nlc2c_rx_ops[
+  * c2c_rx family definition
+  */
+ static struct genl_family nss_nlc2c_rx_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,						/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLC2C_RX_FAMILY,					/* family name string */
+ 	.hdrsize = sizeof(struct nss_c2c_rx_stats_notification),	/* NSS NETLINK c2c_rx stats */
+ 	.version = NSS_NL_VER,						/* Set it to NSS_NLC2C_RX version */
+--- a/netlink/nss_nlc2c_tx.c
++++ b/netlink/nss_nlc2c_tx.c
+@@ -22,9 +22,7 @@
+  */
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <linux/notifier.h>
+ 
+@@ -63,9 +61,6 @@ static struct genl_ops nss_nlc2c_tx_ops[
+  * c2c_tx family definition
+  */
+ static struct genl_family nss_nlc2c_tx_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,						/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLC2C_TX_FAMILY,					/* family name string */
+ 	.hdrsize = sizeof(struct nss_c2c_tx_stats_notification),	/* NSS NETLINK c2c_tx stats */
+ 	.version = NSS_NL_VER,						/* Set it to NSS_NLC2C_TX version */
+--- a/netlink/nss_nlcapwap.c
++++ b/netlink/nss_nlcapwap.c
+@@ -24,7 +24,6 @@
+ #include <linux/mutex.h>
+ #include <linux/netlink.h>
+ #include <linux/types.h>
+-#include <linux/version.h>
+ #include <linux/workqueue.h>
+ 
+ #include <net/genetlink.h>
+@@ -39,6 +38,7 @@
+ #include <nss_dtls_cmn.h>
+ #include <nss_nlcmn_if.h>
+ #include <nss_nl_if.h>
++#include <linux/vmalloc.h>
+ #include "nss_crypto_defines.h"
+ #include "nss_nl.h"
+ #include "nss_nlcapwap_if.h"
+@@ -203,9 +203,6 @@ struct genl_ops nss_nlcapwap_cmd_ops[] =
+  *	Capwap family definition
+  */
+ struct genl_family nss_nlcapwap_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,				/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLCAPWAP_FAMILY,			/* family name string */
+ 	.hdrsize = sizeof(struct nss_nlcapwap_rule),	/* NSS NETLINK capwap rule */
+ 	.version = NSS_NL_VER,				/* Set it to NSS_NL_VER version */
+--- a/netlink/nss_nldtls.c
++++ b/netlink/nss_nldtls.c
+@@ -23,7 +23,6 @@
+ #include <linux/icmp.h>
+ #include <linux/inet.h>
+ #include <linux/udp.h>
+-#include <linux/version.h>
+ #include <net/genetlink.h>
+ #include <net/ip6_checksum.h>
+ #include <net/udp.h>
+@@ -33,6 +32,7 @@
+ #include <nss_dtls_cmn.h>
+ #include <nss_nlcmn_if.h>
+ #include <nss_nl_if.h>
++#include <linux/vmalloc.h>
+ #include "nss_nl.h"
+ #include "nss_nldtls.h"
+ #include "nss_nldtls_if.h"
+@@ -79,9 +79,6 @@ static struct genl_ops nss_nldtls_ops[]
+  *	Dtls family definition
+  */
+ struct genl_family nss_nldtls_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,				/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLDTLS_FAMILY,			/* family name string */
+ 	.hdrsize = sizeof(struct nss_nldtls_rule),	/* NSS NETLINK dtls rule */
+ 	.version = NSS_NL_VER,				/* Set it to NSS_NLDTLS version */
+@@ -1108,7 +1105,7 @@ static ssize_t nss_nldtls_tunnel_stats_r
+ 	list_for_each_entry(entry, &gbl_ctx.dtls_list_head, list) {
+ 		spin_lock_bh(&gbl_ctx.lock);
+ 		memcpy(&stats, &entry->stats, sizeof(stats));
+-		strlcpy(dev_name, entry->dev_name, IFNAMSIZ);
++		strscpy(dev_name, entry->dev_name, IFNAMSIZ);
+ 		spin_unlock_bh(&gbl_ctx.lock);
+ 
+ 		size_wr += scnprintf(lbuf + size_wr, size_al - size_wr, "\n--------------------------------");
+--- a/netlink/nss_nldynamic_interface.c
++++ b/netlink/nss_nldynamic_interface.c
+@@ -22,9 +22,7 @@
+  */
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <linux/notifier.h>
+ 
+@@ -63,9 +61,6 @@ static struct genl_ops nss_nldynamic_int
+  * dynamic interface family definition
+  */
+ static struct genl_family nss_nldynamic_interface_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,					/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLDYNAMIC_INTERFACE_FAMILY,			/* family name string */
+ 	.hdrsize = sizeof(struct nss_dynamic_interface_notification),	/* NSS NETLINK dynamic interface information */
+ 	.version = NSS_NL_VER,					/* Set it to NSS_NLDYNAMIC_INTERFACE version */
+--- a/netlink/nss_nledma.c
++++ b/netlink/nss_nledma.c
+@@ -23,7 +23,6 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+ #include <linux/vmalloc.h>
+ 
+@@ -62,9 +61,6 @@ static struct genl_ops nss_nledma_ops[]
+  * Edma family definition
+  */
+ static struct genl_family nss_nledma_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,				/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLEDMA_FAMILY,			/* family name string */
+ 	.hdrsize = sizeof(struct nss_nledma_stats),	/* NSS NETLINK Edma stats */
+ 	.version = NSS_NL_VER,				/* Set it to NSS_NLEDMA version */
+--- a/netlink/nss_nlethrx.c
++++ b/netlink/nss_nlethrx.c
+@@ -23,9 +23,7 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ 
+ #include <net/genetlink.h>
+@@ -63,9 +61,6 @@ static struct genl_ops nss_nlethrx_ops[]
+  * eth_rx family definition
+  */
+ static struct genl_family nss_nlethrx_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,						/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLETHRX_FAMILY,					/* family name string */
+ 	.hdrsize = sizeof(struct nss_eth_rx_stats_notification),	/* NSS NETLINK eth_rx rule */
+ 	.version = NSS_NL_VER,						/* Set it to NSS_NLETHRX version */
+--- a/netlink/nss_nlgre_redir_cmd.c
++++ b/netlink/nss_nlgre_redir_cmd.c
+@@ -18,7 +18,6 @@
+  * nss_nlgre_redir.c
+  * 	NSS Netlink gre_redir Handler
+  */
+-#include <linux/version.h>
+ #include <net/genetlink.h>
+ #include <nss_api_if.h>
+ #include <nss_nlcmn_if.h>
+@@ -80,9 +79,6 @@ static struct genl_ops nss_nlgre_redir_o
+  * 	Gre_redir family definition
+  */
+ struct genl_family nss_nlgre_redir_cmd_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,				/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLGRE_REDIR_FAMILY,			/* family name string */
+ 	.hdrsize = sizeof(struct nss_nlgre_redir_rule),	/* NSS NETLINK gre_redir rule */
+ 	.version = NSS_NL_VER,				/* Set it to NSS_NLGRE_REDIR version */
+--- a/netlink/nss_nlgre_redir_cmn.c
++++ b/netlink/nss_nlgre_redir_cmn.c
+@@ -14,7 +14,6 @@
+  ***************************************************************************
+  */
+ 
+-#include <linux/version.h>
+ #include <linux/etherdevice.h>
+ #include <linux/if_ether.h>
+ #include <net/genetlink.h>
+@@ -357,19 +356,11 @@ static struct rtnl_link_stats64 *nss_nlg
+  * nss_nlgre_redir_cmn_dev_stats64
+  *	Report packet statistics to linux
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0))
+-static struct rtnl_link_stats64 *nss_nlgre_redir_cmn_dev_stats64(struct net_device *dev,
+-		struct rtnl_link_stats64 *stats)
+-{
+-	return nss_nlgre_redir_cmn_get_stats64(dev, stats);
+-}
+-#else
+ static void nss_nlgre_redir_cmn_dev_stats64(struct net_device *dev,
+ 		struct rtnl_link_stats64 *stats)
+ {
+ 	nss_nlgre_redir_cmn_get_stats64(dev, stats);
+ }
+-#endif
+ 
+ /*
+  * nss_nlgre_redir_cmn_set_mac_address()
+@@ -384,7 +375,7 @@ static int nss_nlgre_redir_cmn_set_mac_a
+ 		return -EINVAL;
+ 	}
+ 
+-	memcpy(dev->dev_addr, addr->sa_data, ETH_ALEN);
++	memcpy((void *) dev->dev_addr, addr->sa_data, ETH_ALEN);
+ 	return 0;
+ }
+ 
+@@ -407,11 +398,7 @@ static void nss_nlgre_redir_cmn_dev_setu
+ 	ether_setup(dev);
+ 	dev->needed_headroom = NSS_NLGRE_REDIR_CMN_NEEDED_HEADROOM;
+ 	dev->netdev_ops = &gre_redir_netdev_ops;
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0))
+-	dev->destructor = nss_nlgre_redir_cmn_netdev_destructor;
+-#else
+ 	dev->priv_destructor = nss_nlgre_redir_cmn_netdev_destructor;
+-#endif
+ 	eth_hw_addr_random(dev);
+ }
+ 
+--- a/netlink/nss_nlipsec.c
++++ b/netlink/nss_nlipsec.c
+@@ -24,7 +24,6 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/if.h>
+ #include <linux/netlink.h>
+@@ -125,9 +124,6 @@ static struct genl_ops nss_nlipsec_ops[]
+  * IPsec family definition
+  */
+ static struct genl_family nss_nlipsec_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,			/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLIPSEC_FAMILY,		/* Family name string */
+ 	.hdrsize = sizeof(struct nss_nlipsec_rule),/* NSS NETLINK IPsec rule */
+ 	.version = NSS_NL_VER,			/* Set it to NSS_NL version */
+@@ -394,7 +390,7 @@ static int nss_nlipsec_op_create_tunnel(
+ 	 * the tunnel I/F name into the same rule and send it
+ 	 * as part of the response for the create operation
+ 	 */
+-	strlcpy(nl_rule->ifname, dev->name, IFNAMSIZ);
++	strscpy(nl_rule->ifname, dev->name, IFNAMSIZ);
+ 
+ 	/*
+ 	 * Send to userspace
+--- a/netlink/nss_nlipv4.c
++++ b/netlink/nss_nlipv4.c
+@@ -22,14 +22,12 @@
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+ #include <linux/types.h>
+-#include <linux/version.h>
+ #include <linux/if.h>
+ #include <linux/in.h>
+ #include <linux/netlink.h>
+ #include <linux/rcupdate.h>
+ #include <linux/etherdevice.h>
+ #include <linux/if_addr.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <linux/if_vlan.h>
+ #include <linux/completion.h>
+@@ -89,9 +87,6 @@ static struct genl_ops nss_nlipv4_ops[]
+  * IPv4 family definition
+  */
+ static struct genl_family nss_nlipv4_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,				/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLIPV4_FAMILY,			/* family name string */
+ 	.hdrsize = sizeof(struct nss_nlipv4_rule),	/* NSS NETLINK IPv4 rule */
+ 	.version = NSS_NL_VER,				/* Set it to NSS_NLIPv4 version */
+@@ -129,7 +124,7 @@ static struct neighbour *nss_nlipv4_get_
+ 	/*
+ 	 * search for route entry
+ 	 */
+-	rt = ip_route_output(&init_net, ip_addr, 0, 0, 0);
++	rt = ip_route_output(&init_net, ip_addr, 0, 0, 0, 0);
+ 	if (IS_ERR(rt)) {
+ 		return NULL;
+ 	}
+--- a/netlink/nss_nlipv4_reasm.c
++++ b/netlink/nss_nlipv4_reasm.c
+@@ -22,9 +22,7 @@
+  */
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <linux/notifier.h>
+ 
+@@ -63,9 +61,6 @@ static struct genl_ops nss_nlipv4_reasm_
+  * ipv4_reasm family definition
+  */
+ static struct genl_family nss_nlipv4_reasm_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,						/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLIPV4_REASM_FAMILY,				/* family name string */
+ 	.hdrsize = sizeof(struct nss_ipv4_reasm_stats_notification),	/* NSS NETLINK ipv4_reasm stats */
+ 	.version = NSS_NL_VER,						/* Set it to NSS_NLIPV4_REASM version */
+--- a/netlink/nss_nlipv6.c
++++ b/netlink/nss_nlipv6.c
+@@ -31,8 +31,6 @@
+ #include <linux/rcupdate.h>
+ #include <linux/semaphore.h>
+ #include <linux/types.h>
+-#include <linux/version.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <net/addrconf.h>
+ #include <net/arp.h>
+@@ -57,11 +55,7 @@
+ #include "nss_nlipv6.h"
+ #include "nss_nlipv6_if.h"
+ 
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0))
+ #define DST_NEIGH_LOOKUP(dst, ip_addr) dst_neigh_lookup(dst, ip_addr)
+-#else
+-#define DST_NEIGH_LOOKUP(dst, ip_addr) dst_get_neighbour_noref(dst)
+-#endif
+ 
+ /*
+  * NSS NETLINK IPv6 context
+@@ -97,9 +91,6 @@ static struct genl_ops nss_nlipv6_ops[]
+  * IPV6 family definition
+  */
+ static struct genl_family nss_nlipv6_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,				/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLIPV6_FAMILY,			/* family name string */
+ 	.hdrsize = sizeof(struct nss_nlipv6_rule),	/* NSS NETLINK IPV6 rule */
+ 	.version = NSS_NL_VER,				/* Set it to NSS_NLIPV6 version */
+@@ -137,11 +128,7 @@ static struct neighbour *nss_nlipv6_get_
+ 
+ 	IPV6_ADDR_TO_IN6_ADDR(daddr, dst_addr);
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0))
+-	rt = rt6_lookup(&init_net, &daddr, NULL, 0, 0);
+-#else
+ 	rt = rt6_lookup(&init_net, &daddr, NULL, 0, NULL, 0);
+-#endif
+ 	if (!rt) {
+ 		return NULL;
+ 	}
+--- a/netlink/nss_nlipv6_reasm.c
++++ b/netlink/nss_nlipv6_reasm.c
+@@ -22,9 +22,7 @@
+  */
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <linux/notifier.h>
+ 
+@@ -63,9 +61,6 @@ static struct genl_ops nss_nlipv6_reasm_
+  * ipv6_reasm family definition
+  */
+ static struct genl_family nss_nlipv6_reasm_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,						/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLIPV6_REASM_FAMILY,				/* family name string */
+ 	.hdrsize = sizeof(struct nss_ipv6_reasm_stats_notification),	/* NSS NETLINK ipv6_reasm stats */
+ 	.version = NSS_NL_VER,						/* Set it to NSS_NLIPV6_REASM version */
+--- a/netlink/nss_nll2tpv2.c
++++ b/netlink/nss_nll2tpv2.c
+@@ -23,9 +23,7 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <linux/notifier.h>
+ 
+@@ -64,9 +62,6 @@ static struct genl_ops nss_nll2tpv2_ops[
+  * l2tpv2 family definition
+  */
+ static struct genl_family nss_nll2tpv2_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,						/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLL2TPV2_FAMILY,					/* family name string */
+ 	.hdrsize = sizeof(struct nss_l2tpv2_stats_notification),	/* NSS NETLINK l2tpv2 stats */
+ 	.version = NSS_NL_VER,						/* Set it to NSS_NLL2TPV2 version */
+--- a/netlink/nss_nllso_rx.c
++++ b/netlink/nss_nllso_rx.c
+@@ -23,9 +23,7 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <linux/notifier.h>
+ 
+@@ -64,9 +62,6 @@ static struct genl_ops nss_nllso_rx_ops[
+  * lso_rx family definition
+  */
+ static struct genl_family nss_nllso_rx_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,						/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLLSO_RX_FAMILY,					/* family name string */
+ 	.hdrsize = sizeof(struct nss_lso_rx_stats_notification),	/* NSS NETLINK lso_rx stats */
+ 	.version = NSS_NL_VER,						/* Set it to NSS_NLLSO_RX version */
+--- a/netlink/nss_nlmap_t.c
++++ b/netlink/nss_nlmap_t.c
+@@ -23,9 +23,7 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <linux/notifier.h>
+ 
+@@ -64,9 +62,6 @@ static struct genl_ops nss_nlmap_t_ops[]
+  * map_t family definition
+  */
+ static struct genl_family nss_nlmap_t_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,						/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLMAP_T_FAMILY,					/* family name string */
+ 	.hdrsize = sizeof(struct nss_map_t_stats_notification),		/* NSS NETLINK map_t stats */
+ 	.version = NSS_NL_VER,						/* Set it to NSS_NLMAP_T version */
+--- a/netlink/nss_nln2h.c
++++ b/netlink/nss_nln2h.c
+@@ -22,9 +22,7 @@
+  */
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <linux/notifier.h>
+ 
+@@ -63,9 +61,6 @@ static struct genl_ops nss_nln2h_ops[] =
+  * n2h family definition
+  */
+ static struct genl_family nss_nln2h_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,					/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLN2H_FAMILY,				/* family name string */
+ 	.hdrsize = sizeof(struct nss_n2h_stats_notification),	/* NSS NETLINK n2h stats */
+ 	.version = NSS_NL_VER,					/* Set it to NSS_NLN2H version */
+--- a/netlink/nss_nloam.c
++++ b/netlink/nss_nloam.c
+@@ -27,7 +27,6 @@
+ #include <linux/module.h>
+ #include <linux/types.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ 
+ #include <net/genetlink.h>
+ #include <nss_api_if.h>
+@@ -98,9 +97,6 @@ static struct genl_ops nss_nloam_ops[] =
+  * OAM family definition
+  */
+ static struct genl_family nss_nloam_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,				/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLOAM_FAMILY,			/* family name string */
+ 	.hdrsize = sizeof(struct nss_nloam_rule),	/* NLOAM msg size */
+ 	.version = NSS_NL_VER,				/* nss netlink version */
+@@ -164,7 +160,7 @@ static int nss_nloam_get_fw_post_resp(vo
+ 		goto fail;
+ 	}
+ 
+-	strlcpy((char *)get_resp->bin, nom->msg.fw_ver.string, NSS_OAM_FW_VERSION_LEN);
++	strscpy((char *)get_resp->bin, nom->msg.fw_ver.string, NSS_OAM_FW_VERSION_LEN);
+ 	get_resp->bin[NSS_OAM_FW_VERSION_LEN - 1] = '\0';
+ 	get_resp->error_no = 0;
+ 
+--- a/netlink/nss_nlpppoe.c
++++ b/netlink/nss_nlpppoe.c
+@@ -23,9 +23,7 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <linux/notifier.h>
+ 
+@@ -64,9 +62,6 @@ static struct genl_ops nss_nlpppoe_ops[]
+  * pppoe family definition
+  */
+ static struct genl_family nss_nlpppoe_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,						/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLPPPOE_FAMILY,					/* family name string */
+ 	.hdrsize = sizeof(struct nss_pppoe_stats_notification),		/* NSS NETLINK pppoe stats */
+ 	.version = NSS_NL_VER,						/* Set it to NSS_NLPPPOE version */
+--- a/netlink/nss_nlpptp.c
++++ b/netlink/nss_nlpptp.c
+@@ -23,9 +23,7 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <linux/notifier.h>
+ 
+@@ -64,9 +62,6 @@ static struct genl_ops nss_nlpptp_ops[]
+  * pptp family definition
+  */
+ static struct genl_family nss_nlpptp_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,						/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLPPTP_FAMILY,					/* family name string */
+ 	.hdrsize = sizeof(struct nss_pptp_stats_notification),		/* NSS NETLINK pptp stats */
+ 	.version = NSS_NL_VER,						/* Set it to NSS_NLPPTP version */
+--- a/netlink/nss_nlqrfs.c
++++ b/netlink/nss_nlqrfs.c
+@@ -23,9 +23,7 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ 
+ #include <net/genetlink.h>
+@@ -65,9 +63,6 @@ static struct genl_ops nss_nlqrfs_ops[]
+  * qrfs family definition
+  */
+ static struct genl_family nss_nlqrfs_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,						/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLQRFS_FAMILY,					/* family name string */
+ 	.hdrsize = sizeof(struct nss_nlqrfs_rule),			/* NSS NETLINK qrfs rule */
+ 	.version = NSS_NL_VER,						/* Set it to NSS_NLQRFS version */
+--- a/netlink/nss_nludp_st.c
++++ b/netlink/nss_nludp_st.c
+@@ -24,9 +24,7 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <linux/timekeeping.h>
+ #include <linux/timer.h>
+@@ -88,9 +86,6 @@ static struct genl_ops nss_nludp_st_ops[
+  * udp_st family definition
+  */
+ static struct genl_family nss_nludp_st_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,						/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLUDP_ST_FAMILY,					/* family name string */
+ 	.hdrsize = sizeof(struct nss_nludp_st_rule),			/* NSS NETLINK udp_st rule */
+ 	.version = NSS_NL_VER,						/* Set it to NSS_NLudp_st version */
+@@ -154,18 +149,10 @@ static void nss_nludp_st_time_sync(struc
+  * nss_nludp_st_time_sync_timer_cb
+  *	Time Sync timer callback handler.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+-static void nss_nludp_st_time_sync_timer_cb(unsigned long data)
+-#else
+ static void nss_nludp_st_time_sync_timer_cb(struct timer_list *t)
+-#endif
+ {
+ 	unsigned long next_timer_jiffies;
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+-	struct nss_nludp_st_private *priv = (struct nss_nludp_st_private *)data;
+-#else
+-	struct nss_nludp_st_private *priv = from_timer(priv, t, time_sync_timer);
+-#endif
++	struct nss_nludp_st_private *priv = timer_container_of(priv, t, time_sync_timer);
+ 	/*
+ 	 * Check if stop is called or test duration is over.
+ 	 */
+@@ -189,17 +176,9 @@ static void nss_nludp_st_time_sync_timer
+  * nss_nludp_st_test_duration_timer_cb
+  *	Test duration timer callback handler.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+-static void nss_nludp_st_test_duration_timer_cb(unsigned long data)
+-#else
+ static void nss_nludp_st_test_duration_timer_cb(struct timer_list *t)
+-#endif
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+-	struct nss_nludp_st_private *priv = (struct nss_nludp_st_private *)data;
+-#else
+-	struct nss_nludp_st_private *priv = from_timer(priv, t, test_duration_timer);
+-#endif
++	struct nss_nludp_st_private *priv = timer_container_of(priv, t, test_duration_timer);
+ 	atomic_set(&priv->disable_time_sync_timer, 1);
+ }
+ 
+@@ -235,7 +214,7 @@ static void nss_nludp_st_process_resp_ti
+ 			 * Update time sync timer disable flag and delete test duration timer.
+ 			 */
+ 			atomic_set(&global.disable_time_sync_timer, 1);
+-			del_timer(&global.test_duration_timer);
++			timer_delete(&global.test_duration_timer);
+ 			break;
+ 
+ 		case NSS_UDP_ST_RESET_STATS_MSG:
+@@ -749,7 +728,7 @@ static struct neighbour *nss_nludp_st_ge
+ 	/*
+ 	 * search for route entry
+ 	 */
+-	rt = ip_route_output(&init_net, ip_addr, 0, 0, 0);
++	rt = ip_route_output(&init_net, ip_addr, 0, 0, 0, 0);
+ 	if (IS_ERR(rt)) {
+ 		return NULL;
+ 	}
+@@ -864,11 +843,7 @@ static struct neighbour *nss_nludp_st_ge
+ 
+ 	IPV6_ADDR_TO_IN6_ADDR(daddr, dst_addr);
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0))
+-	rt = rt6_lookup(&init_net, &daddr, NULL, 0, 0);
+-#else
+ 	rt = rt6_lookup(&init_net, &daddr, NULL, 0, NULL, 0);
+-#endif
+ 	if (!rt) {
+ 		nss_nl_warn("rt6 info lookup failed\n");
+ 		return NULL;
+@@ -2125,18 +2100,8 @@ fail:
+  */
+ static void nss_nludp_private_init(void) {
+ 	global.mode = NSS_UDP_ST_MODE_DEFAULT;
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+-	init_timer(&global.time_sync_timer);
+-	global.time_sync_timer.function = nss_nludp_st_time_sync_timer_cb;
+-	global.time_sync_timer.data = (unsigned long)&global;
+-
+-	init_timer(&global.test_duration_timer);
+-	global.test_duration_timer.function = nss_nludp_st_test_duration_timer_cb;
+-	global.test_duration_timer.data = (unsigned long)&global;
+-#else
+ 	timer_setup(&global.time_sync_timer, nss_nludp_st_time_sync_timer_cb, 0);
+ 	timer_setup(&global.test_duration_timer, nss_nludp_st_test_duration_timer_cb, 0);
+-#endif
+ 	INIT_WORK(&global.work, nss_nludp_st_time_sync);
+ 
+ }
+--- a/netlink/nss_nlwifili.c
++++ b/netlink/nss_nlwifili.c
+@@ -23,9 +23,7 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+-#include <linux/version.h>
+ #include <linux/netlink.h>
+-#include <linux/version.h>
+ #include <linux/vmalloc.h>
+ #include <linux/notifier.h>
+ 
+@@ -64,9 +62,6 @@ static struct genl_ops nss_nlwifili_ops[
+  * wifili family definition
+  */
+ static struct genl_family nss_nlwifili_family = {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 9, 0))
+-	.id = GENL_ID_GENERATE,						/* Auto generate ID */
+-#endif
+ 	.name = NSS_NLWIFILI_FAMILY,					/* family name string */
+ 	.hdrsize = sizeof(struct nss_wifili_stats_notification),	/* NSS NETLINK wifili stats */
+ 	.version = NSS_NL_VER,						/* Set it to NSS_NLWIFILI version */
+--- a/nss_connmgr_tun6rd.c
++++ b/nss_connmgr_tun6rd.c
+@@ -22,7 +22,6 @@
+  * Qualcomm Atheros         15/sep/2013              Created
+  */
+ 
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/ip.h>
+ #include <linux/of.h>
+@@ -30,11 +29,7 @@
+ #include <linux/module.h>
+ #include <linux/skbuff.h>
+ #include <net/ipv6.h>
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(3,9,0))
+-#include <net/ipip.h>
+-#else
+ #include <net/ip_tunnels.h>
+-#endif
+ #include <linux/if_arp.h>
+ #include <nss_api_if.h>
+ #include <nss_dynamic_interface.h>
+@@ -96,7 +91,6 @@ struct nss_tun6rd_stats {
+ static void nss_tun6rd_update_dev_stats(struct net_device *dev,
+ 					struct nss_tun6rd_sync_stats_msg *sync_stats)
+ {
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0))
+ 	struct pcpu_sw_netstats stats;
+ 
+ 	u64_stats_init(&stats.syncp);
+@@ -106,14 +100,6 @@ static void nss_tun6rd_update_dev_stats(
+ 	stats.tx_packets = sync_stats->node_stats.tx_packets;
+ 	stats.tx_bytes = sync_stats->node_stats.tx_bytes;
+ 	u64_stats_update_end(&stats.syncp);
+-#else
+-	struct nss_tun6rd_stats stats;
+-
+-	stats.rx_packets = sync_stats->node_stats.rx_packets;
+-	stats.rx_bytes = sync_stats->node_stats.rx_bytes;
+-	stats.tx_packets = sync_stats->node_stats.tx_packets;
+-	stats.tx_bytes = sync_stats->node_stats.tx_bytes;
+-#endif
+ 
+ 	ipip6_update_offload_stats(dev, (void *)&stats);
+ }
+@@ -423,11 +409,7 @@ static int nss_tun6rd_dev_down(struct ne
+ static int nss_tun6rd_dev_event(struct notifier_block  *nb,
+ 		unsigned long event, void  *dev)
+ {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(3,10,0))
+-	struct net_device *netdev = (struct net_device *)dev;
+-#else
+ 	struct net_device *netdev = netdev_notifier_info_to_dev(dev);
+-#endif
+ 
+ 	switch (event) {
+ 	case NETDEV_UP:
+--- a/nss_qdisc/igs/Makefile
++++ b/nss_qdisc/igs/Makefile
+@@ -1,6 +1,6 @@
+ # Makefile for IGS (Ingress Shaping)
+ 
+-ccflags-y += $(NSS_CCFLAGS) -I$(obj)/../../exports
++ccflags-y += -I$(obj)/../../exports
+ ccflags-y += -DNSS_IGS_DEBUG_LEVEL=2
+ ccflags-y += -Wall -Werror
+ 
+--- a/nss_qdisc/igs/nss_ifb.c
++++ b/nss_qdisc/igs/nss_ifb.c
+@@ -544,8 +544,10 @@ static void nss_ifb_update_dev_stats(str
+ 	 * post shaping. Therefore IFB interface's stats should be updated
+ 	 * with NSS firmware's IFB TX stats only.
+ 	 */
+-	stats.rx_packets = stats.tx_packets = node_stats->tx_packets;
+-	stats.rx_bytes = stats.tx_bytes = node_stats->tx_bytes;
++	u64_stats_set(&stats.rx_packets, node_stats->tx_packets);
++	u64_stats_set(&stats.tx_packets, node_stats->tx_packets);
++	u64_stats_set(&stats.rx_bytes, node_stats->tx_bytes);
++	u64_stats_set(&stats.tx_bytes, node_stats->tx_bytes);
+ 	dev->stats.rx_dropped = dev->stats.tx_dropped += sync_stats->igs_stats.tx_dropped;
+ 	u64_stats_update_end(&stats.syncp);
+ 
+--- a/nss_qdisc/igs/nss_mirred.c
++++ b/nss_qdisc/igs/nss_mirred.c
+@@ -24,20 +24,14 @@
+ 
+ static LIST_HEAD(nss_mirred_list);		/* List for all nss mirred actions */
+ static DEFINE_SPINLOCK(nss_mirred_list_lock);	/* Lock for the nss mirred list */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
+ static unsigned int nss_mirred_net_id;		/* NSS mirror net ID */
+ static struct tc_action_ops nss_mirred_act_ops;	/* NSS action mirror ops */
+-#endif
+ 
+ /*
+  * nss_mirred_release()
+  *	Cleanup the resources for nss mirred action.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-static void nss_mirred_release(struct tc_action *tc_act, int bind)
+-#else
+ static void nss_mirred_release(struct tc_action *tc_act)
+-#endif
+ {
+ 	struct nss_mirred_tcf *act = nss_mirred_get(tc_act);
+ 	struct net_device *dev = rcu_dereference_protected(act->tcfm_dev, 1);
+@@ -82,20 +76,13 @@ static const struct nla_policy nss_mirre
+  * nss_mirred_init()
+  *	Initialize the nss mirred action.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+ static int nss_mirred_init(struct net *net, struct nlattr *nla,
+-			   struct nlattr *est, struct tc_action *tc_act, int ovr,
+-			   int bind)
+-{
+-#else
+-static int nss_mirred_init(struct net *net, struct nlattr *nla,
+-			   struct nlattr *est, struct tc_action **tc_act, int ovr,
+-			   int bind, bool rtnl_held, struct tcf_proto *tp,
+-			   struct netlink_ext_ack *extack)
++						struct nlattr *est, struct tc_action **tc_act,
++						struct tcf_proto *tp, u32 flags, struct netlink_ext_ack *extack)
+ {
++	bool bind = flags & TCA_ACT_FLAGS_BIND;
+ 	struct tc_action_net *tn = net_generic(net, nss_mirred_net_id);
+ 	u32 index;
+-#endif
+ 	struct nlattr *arr[TC_NSS_MIRRED_MAX + 1];
+ 	struct tc_nss_mirred *parm;
+ 	struct nss_mirred_tcf *act;
+@@ -110,11 +97,7 @@ static int nss_mirred_init(struct net *n
+ 	/*
+ 	 * Parse and validate the user configurations.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 2, 0))
+-	ret = nla_parse_nested(arr, TC_NSS_MIRRED_MAX, nla, nss_mirred_policy);
+-#else
+ 	ret = nla_parse_nested_deprecated(arr, TC_NSS_MIRRED_MAX, nla, nss_mirred_policy, extack);
+-#endif
+ 	if (ret < 0) {
+ 		return ret;
+ 	}
+@@ -215,19 +198,6 @@ static int nss_mirred_init(struct net *n
+ 	/*
+ 	 * Return error if nss mirred action index is present in the hash.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	if (tcf_hash_check(parm->index, tc_act, bind)) {
+-		return -EEXIST;
+-	}
+-
+-	ret = tcf_hash_create(parm->index, est, tc_act, sizeof(*act),
+-			bind, true);
+-	if (ret) {
+-		return ret;
+-	}
+-
+-	act = nss_mirred_get(tc_act);
+-#else
+ 	index = parm->index;
+ 	ret = tcf_idr_check_alloc(tn, &index, tc_act, bind);
+ 	if (ret < 0) {
+@@ -240,7 +210,7 @@ static int nss_mirred_init(struct net *n
+ 
+ 	if (!ret) {
+ 		ret = tcf_idr_create(tn, index, est, tc_act, &nss_mirred_act_ops,
+-				bind, true);
++				bind, true, 0);
+ 		if (ret) {
+ 			tcf_idr_cleanup(tn, index);
+ 			return ret;
+@@ -248,7 +218,6 @@ static int nss_mirred_init(struct net *n
+ 	}
+ 
+ 	act = nss_mirred_get(*tc_act);
+-#endif
+ 	/*
+ 	 * Fill up the nss mirred tc parameters to
+ 	 * its local action structure.
+@@ -266,9 +235,6 @@ static int nss_mirred_init(struct net *n
+ 	spin_lock_bh(&nss_mirred_list_lock);
+ 	list_add(&act->tcfm_list, &nss_mirred_list);
+ 	spin_unlock_bh(&nss_mirred_list_lock);
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	tcf_hash_insert(tc_act);
+-#endif
+ 
+ 	return ACT_P_CREATED;
+ }
+@@ -280,35 +246,19 @@ static int nss_mirred_init(struct net *n
+ static int nss_mirred_act(struct sk_buff *skb, const struct tc_action *tc_act,
+ 		      struct tcf_result *res)
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	struct nss_mirred_tcf *act = tc_act->priv;
+-#else
+ 	struct nss_mirred_tcf *act = nss_mirred_get(tc_act);
+-#endif
+ 	struct net_device *dev;
+ 	struct sk_buff *skb_new;
+ 	int retval, err;
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	u32 skb_tc_at = G_TC_AT(skb->tc_verd);
+-
+-	/*
+-	 * Return if skb is not at ingress.
+-	 */
+-	if (!(skb_tc_at & AT_INGRESS)) {
+-		return TC_ACT_UNSPEC;
+-	}
+-
+-#else
+ 	if (!skb_at_tc_ingress(skb)) {
+ 		return TC_ACT_UNSPEC;
+ 	}
+-#endif
+ 
+ 	/*
+ 	 * Update the last use of action.
+ 	 */
+ 	tcf_lastuse_update(&act->tcf_tm);
+-	bstats_cpu_update(this_cpu_ptr(act->common.cpu_bstats), skb);
++	bstats_update(this_cpu_ptr(act->common.cpu_bstats), skb);
+ 
+ 	rcu_read_lock();
+ 	retval = READ_ONCE(act->tcf_action);
+@@ -333,14 +283,8 @@ static int nss_mirred_act(struct sk_buff
+ 
+ 	skb_new->skb_iif = skb->dev->ifindex;
+ 	skb_new->dev = dev;
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	skb_new->tc_verd = SET_TC_FROM(skb_new->tc_verd, skb_tc_at);
+-	skb_push_rcsum(skb_new, skb->mac_len);
+-	skb_sender_cpu_clear(skb_new);
+-#else
+ 	skb_set_redirected(skb_new, skb_new->tc_at_ingress);
+ 	skb_push_rcsum(skb_new, skb->mac_len);
+-#endif
+ 
+ 	err = dev_queue_xmit(skb_new);
+ 	if (!err) {
+@@ -348,7 +292,7 @@ static int nss_mirred_act(struct sk_buff
+ 		return retval;
+ 	}
+ out:
+-	qstats_overlimit_inc(this_cpu_ptr(act->common.cpu_qstats));
++	tcf_action_inc_overlimit_qstats(&act->common);
+ 	retval = TC_ACT_SHOT;
+ 	rcu_read_unlock();
+ 	return retval;
+@@ -362,21 +306,12 @@ static int nss_mirred_dump(struct sk_buf
+ {
+ 	struct tcf_t filter;
+ 	unsigned char *tail = skb_tail_pointer(skb);
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	struct nss_mirred_tcf *act = tc_act->priv;
+-#else
+ 	struct nss_mirred_tcf *act = nss_mirred_get(tc_act);
+-#endif
+ 	struct tc_nss_mirred opt = {
+ 		.index   = act->tcf_index,
+ 		.action  = act->tcf_action,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-		.refcnt  = act->tcf_refcnt - ref,
+-		.bindcnt = act->tcf_bindcnt - bind,
+-#else
+ 		.refcnt  = refcount_read(&act->tcf_refcnt) - ref,
+ 		.bindcnt = atomic_read(&act->tcf_bindcnt) - bind,
+-#endif
+ 		.from_ifindex = act->tcfm_from_ifindex,
+ 		.to_ifindex = act->tcfm_to_ifindex,
+ 	};
+@@ -541,7 +476,6 @@ static int nss_mirred_device_event(struc
+ 	return NOTIFY_DONE;
+ }
+ 
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
+ /*
+  * nss_mirred_walker
+  *	nssmirred tcf_action walker
+@@ -597,7 +531,6 @@ static struct net_device *nss_mirred_dev
+ 
+ 	return dev;
+ }
+-#endif
+ 
+ /*
+  * nss_mirred_device_notifier
+@@ -618,15 +551,11 @@ static struct tc_action_ops nss_mirred_a
+ 	.dump		=	nss_mirred_dump,
+ 	.cleanup	=	nss_mirred_release,
+ 	.init		=	nss_mirred_init,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	.type		=	TCA_ACT_MIRRED_NSS,
+-#else
+ 	.id		=	TCA_ID_MIRRED_NSS,
+ 	.walk		=	nss_mirred_walker,
+ 	.lookup		=	nss_mirred_search,
+ 	.size           =       sizeof(struct nss_mirred_tcf),
+ 	.get_dev	=	nss_mirred_device
+-#endif
+ };
+ 
+ /*
+@@ -651,7 +580,6 @@ struct nf_hook_ops nss_mirred_igs_nf_ops
+ 	},
+ };
+ 
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
+ /*
+  * nss_mirred_init_net
+  *	nssmirred net init function.
+@@ -695,7 +623,6 @@ static struct pernet_operations nss_mirr
+ 	.id   = &nss_mirred_net_id,
+ 	.size = sizeof(struct tc_action_net),
+ };
+-#endif
+ 
+ /*
+  * nss_mirred_init_module()
+@@ -708,27 +635,11 @@ static int __init nss_mirred_init_module
+ 		return err;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	err = tcf_register_action(&nss_mirred_act_ops, NSS_MIRRED_TAB_MASK);
+-	if (err) {
+-		unregister_netdevice_notifier(&nss_mirred_device_notifier);
+-		return err;
+-	}
+-
+-	err = nf_register_hooks(nss_mirred_igs_nf_ops, ARRAY_SIZE(nss_mirred_igs_nf_ops));
+-	if (err < 0) {
+-		nss_igs_error("Registering ingress nf hooks failed, ret: %d\n", err);
+-		tcf_unregister_action(&nss_mirred_act_ops);
+-		unregister_netdevice_notifier(&nss_mirred_device_notifier);
+-		return err;
+-	}
+-#else
+ 	err = tcf_register_action(&nss_mirred_act_ops, &nss_mirred_net_ops);
+ 	if (err) {
+ 		unregister_netdevice_notifier(&nss_mirred_device_notifier);
+ 		return err;
+ 	}
+-#endif
+ 
+ 	/*
+ 	 * Set the IGS module reference variable.
+@@ -750,16 +661,7 @@ static void __exit nss_mirred_cleanup_mo
+ 	 */
+ 	nss_igs_module_save(&nss_mirred_act_ops, NULL);
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	nf_unregister_hooks(nss_mirred_igs_nf_ops, ARRAY_SIZE(nss_mirred_igs_nf_ops));
+-
+-	/*
+-	 * Un-register nss mirred action.
+-	 */
+-	tcf_unregister_action(&nss_mirred_act_ops);
+-#else
+ 	tcf_unregister_action(&nss_mirred_act_ops, &nss_mirred_net_ops);
+-#endif
+ 	unregister_netdevice_notifier(&nss_mirred_device_notifier);
+ }
+ 
+--- a/nss_qdisc/igs/nss_mirred.h
++++ b/nss_qdisc/igs/nss_mirred.h
+@@ -14,7 +14,6 @@
+  **************************************************************************
+  */
+ 
+-#include <linux/version.h>
+ #include <net/act_api.h>
+ 
+ #define NSS_MIRRED_TAB_MASK 7
+@@ -24,11 +23,7 @@
+  *	nss mirred internal structure.
+  */
+ struct nss_mirred_tcf {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	struct tcf_common common;		/* Common filter structure */
+-#else
+ 	struct tc_action common;		/* Common filter structure */
+-#endif
+ 	__u32 tcfm_to_ifindex;			/* Index number of device to which
+ 						 * traffic will be redirected.
+ 						 */
+@@ -45,10 +40,5 @@ struct nss_mirred_tcf {
+  * To get the pointer of nss mirred action structure from the common
+  * tc_action structure pointer.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-#define nss_mirred_get(a) \
+-	container_of(a->priv, struct nss_mirred_tcf, common)
+-#else
+ #define nss_mirred_get(a) ((struct nss_mirred_tcf *)a)
+-#endif
+ 
+--- a/nss_qdisc/nss_bf.c
++++ b/nss_qdisc/nss_bf.c
+@@ -72,16 +72,9 @@ static inline struct nss_bf_class_data *
+  * nss_bf_change_class()
+  *	Configures a new class.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_bf_change_class(struct Qdisc *sch, u32 classid, u32 parentid,
+-		  struct nlattr **tca, unsigned long *arg)
+-{
+-	struct netlink_ext_ack *extack = NULL;
+-#else
+ static int nss_bf_change_class(struct Qdisc *sch, u32 classid, u32 parentid,
+ 		  struct nlattr **tca, unsigned long *arg, struct netlink_ext_ack *extack)
+ {
+-#endif
+ 	struct nss_bf_sched_data *q = qdisc_priv(sch);
+ 	struct nss_bf_class_data *cl = (struct nss_bf_class_data *)*arg;
+ 	struct nlattr *opt = tca[TCA_OPTIONS];
+@@ -96,11 +89,7 @@ static int nss_bf_change_class(struct Qd
+ 		return -EINVAL;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_bf_policy, tb, TCA_NSSBF_MAX, TCA_NSSBF_CLASS_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_bf_policy, tb, TCA_NSSBF_MAX, TCA_NSSBF_CLASS_PARMS, extack);
+-#endif
+ 
+ 	if (!qopt) {
+ 		return -EINVAL;
+@@ -290,7 +279,7 @@ static void nss_bf_destroy_class(struct
+  * nss_bf_delete_class()
+  *	Detaches a class from operation, but does not destroy it.
+  */
+-static int nss_bf_delete_class(struct Qdisc *sch, unsigned long arg)
++static int nss_bf_delete_class(struct Qdisc *sch, unsigned long arg, struct netlink_ext_ack *extack)
+ {
+ 	struct nss_bf_sched_data *q = qdisc_priv(sch);
+ 	struct nss_bf_class_data *cl = (struct nss_bf_class_data *)arg;
+@@ -329,13 +318,7 @@ static int nss_bf_delete_class(struct Qd
+ 	 * explicitly as there is no put_class which would have called
+ 	 * nss_bf_destroy_class when refcnt becomes zero.
+ 	 */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0))
+ 	nss_bf_destroy_class(sch, cl);
+-#else
+-	if (!refcnt) {
+-		nss_qdisc_error("Reference count should not be zero for class %px\n", cl);
+-	}
+-#endif
+ 	return 0;
+ }
+ 
+@@ -343,13 +326,8 @@ static int nss_bf_delete_class(struct Qd
+  * nss_bf_graft_class()
+  *	Replaces the qdisc attached to the provided class.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_bf_graft_class(struct Qdisc *sch, unsigned long arg, struct Qdisc *new,
+-								 struct Qdisc **old)
+-#else
+ static int nss_bf_graft_class(struct Qdisc *sch, unsigned long arg, struct Qdisc *new,
+ 								 struct Qdisc **old, struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_bf_sched_data *q = qdisc_priv(sch);
+ 	struct nss_bf_class_data *cl = (struct nss_bf_class_data *)arg;
+@@ -377,7 +355,7 @@ static int nss_bf_graft_class(struct Qdi
+ 	 */
+ 	nss_qdisc_info("Grafting old: %px with new: %px\n", *old, new);
+ 	if (*old != &noop_qdisc) {
+-		struct nss_qdisc *nq_old = (struct nss_qdisc *)qdisc_priv(*old);
++		struct nss_qdisc *nq_old = (struct nss_qdisc *)qdisc_priv(((struct Qdisc *)(*old)));
+ 		nss_qdisc_info("Detaching old: %px\n", *old);
+ 		nim_detach.msg.shaper_configure.config.msg.shaper_node_config.qos_tag = cl->nq.qos_tag;
+ 		if (nss_qdisc_node_detach(&cl->nq, nq_old, &nim_detach,
+@@ -439,41 +417,6 @@ static void nss_bf_qlen_notify(struct Qd
+ 	 */
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-/*
+- * nss_bf_get_class()
+- *	Fetches the class pointer if provided the classid.
+- */
+-static unsigned long nss_bf_get_class(struct Qdisc *sch, u32 classid)
+-{
+-	struct nss_bf_class_data *cl = nss_bf_find_class(classid, sch);
+-
+-	nss_qdisc_info("Get bf class %px - class match = %px\n", sch, cl);
+-
+-	if (cl != NULL)
+-		atomic_add(1, &cl->nq.refcnt);
+-
+-	return (unsigned long)cl;
+-}
+-
+-/*
+- * nss_bf_put_class()
+- *	Reduces reference count for this class.
+- */
+-static void nss_bf_put_class(struct Qdisc *sch, unsigned long arg)
+-{
+-	struct nss_bf_class_data *cl = (struct nss_bf_class_data *)arg;
+-	nss_qdisc_info("bf put class for %px\n", cl);
+-
+-	/*
+-	 * We are safe to destroy the qdisc if the reference count
+-	 * goes down to 0.
+-	 */
+-	if (nss_qdisc_atomic_sub_return(&cl->nq) == 0) {
+-		nss_bf_destroy_class(sch, cl);
+-	}
+-}
+-#else
+ /*
+  * nss_bf_search_class()
+  *	Fetches the class pointer if provided the classid.
+@@ -486,7 +429,6 @@ static unsigned long nss_bf_search_class
+ 
+ 	return (unsigned long)cl;
+ }
+-#endif
+ 
+ /*
+  * nss_bf_dump_class()
+@@ -577,12 +519,8 @@ static void nss_bf_walk(struct Qdisc *sc
+  * nss_bf_change_qdisc()
+  *	Can be used to configure a nssbf qdisc.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_bf_change_qdisc(struct Qdisc *sch, struct nlattr *opt)
+-#else
+ static int nss_bf_change_qdisc(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_bf_sched_data *q = qdisc_priv(sch);
+ 	struct nlattr *tb[TCA_NSSBF_MAX + 1];
+@@ -608,11 +546,7 @@ static int nss_bf_change_qdisc(struct Qd
+ 	/*
+ 	 * If it is not NULL, parse to get qopt.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_bf_policy, tb, TCA_NSSBF_MAX, TCA_NSSBF_QDISC_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_bf_policy, tb, TCA_NSSBF_MAX, TCA_NSSBF_QDISC_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		return -EINVAL;
+ 	}
+@@ -733,15 +667,9 @@ static void nss_bf_destroy_qdisc(struct
+  * nss_bf_init_qdisc()
+  *	Initializes the nssbf qdisc.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_bf_init_qdisc(struct Qdisc *sch, struct nlattr *opt)
+-{
+-	struct netlink_ext_ack *extack = NULL;
+-#else
+ static int nss_bf_init_qdisc(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+ {
+-#endif
+ 	struct nss_bf_sched_data *q = qdisc_priv(sch);
+ 	struct nlattr *tb[TCA_NSSBF_MAX + 1];
+ 	struct tc_nssbf_qopt *qopt;
+@@ -767,11 +695,7 @@ static int nss_bf_init_qdisc(struct Qdis
+ 	if (!opt) {
+ 		accel_mode = TCA_NSS_ACCEL_MODE_NSS_FW;
+ 	} else {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-		qopt = nss_qdisc_qopt_get(opt, nss_bf_policy, tb, TCA_NSSBF_MAX, TCA_NSSBF_QDISC_PARMS);
+-#else
+ 		qopt = nss_qdisc_qopt_get(opt, nss_bf_policy, tb, TCA_NSSBF_MAX, TCA_NSSBF_QDISC_PARMS, extack);
+-#endif
+ 		if (!qopt) {
+ 			return -EINVAL;
+ 		}
+@@ -790,11 +714,7 @@ static int nss_bf_init_qdisc(struct Qdis
+ 	/*
+ 	 * Tune nss_bf parameters.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nss_bf_change_qdisc(sch, opt) < 0) {
+-#else
+ 	if (nss_bf_change_qdisc(sch, opt, extack) < 0) {
+-#endif
+ 		nss_qdisc_destroy(&q->nq);
+ 		return -EINVAL;
+ 	}
+@@ -832,18 +752,10 @@ nla_put_failure:
+  * nss_bf_enqueue()
+  *	Enqueues a skb to nssbf qdisc.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-static int nss_bf_enqueue(struct sk_buff *skb, struct Qdisc *sch)
+-#else
+ static int nss_bf_enqueue(struct sk_buff *skb, struct Qdisc *sch,
+ 				struct sk_buff **to_free)
+-#endif
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	return nss_qdisc_enqueue(skb, sch);
+-#else
+ 	return nss_qdisc_enqueue(skb, sch, to_free);
+-#endif
+ }
+ 
+ /*
+@@ -855,19 +767,6 @@ static struct sk_buff *nss_bf_dequeue(st
+ 	return nss_qdisc_dequeue(sch);
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-/*
+- * nss_bf_drop()
+- *	Drops a single skb from linux queue, if not empty.
+- *
+- * Does not drop packets that are queued in the NSS.
+- */
+-static unsigned int nss_bf_drop(struct Qdisc *sch)
+-{
+-	printk("In bf drop\n");
+-	return nss_qdisc_drop(sch);
+-}
+-#endif
+ 
+ /*
+  * Registration structure for nssbf class
+@@ -878,17 +777,8 @@ const struct Qdisc_class_ops nss_bf_clas
+ 	.graft		= nss_bf_graft_class,
+ 	.leaf		= nss_bf_leaf_class,
+ 	.qlen_notify	= nss_bf_qlen_notify,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-	.get		= nss_bf_get_class,
+-	.put		= nss_bf_put_class,
+-#else
+ 	.find		= nss_bf_search_class,
+-#endif
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	.tcf_chain	= nss_qdisc_tcf_chain,
+-#else
+ 	.tcf_block      = nss_qdisc_tcf_block,
+-#endif
+ 	.bind_tcf	= nss_qdisc_tcf_bind,
+ 	.unbind_tcf	= nss_qdisc_tcf_unbind,
+ 	.dump		= nss_bf_dump_class,
+@@ -909,9 +799,6 @@ struct Qdisc_ops nss_bf_qdisc_ops __read
+ 	.enqueue	= nss_bf_enqueue,
+ 	.dequeue	= nss_bf_dequeue,
+ 	.peek		= qdisc_peek_dequeued,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	.drop		= nss_bf_drop,
+-#endif
+ 	.cl_ops		= &nss_bf_class_ops,
+ 	.priv_size	= sizeof(struct nss_bf_sched_data),
+ 	.owner		= THIS_MODULE
+--- a/nss_qdisc/nss_blackhole.c
++++ b/nss_qdisc/nss_blackhole.c
+@@ -35,18 +35,10 @@ static struct nla_policy nss_blackhole_p
+  * nss_blackhole_enqueue()
+  *	Enqueue API for nss blackhole qdisc.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-static int nss_blackhole_enqueue(struct sk_buff *skb, struct Qdisc *sch)
+-#else
+ static int nss_blackhole_enqueue(struct sk_buff *skb, struct Qdisc *sch,
+ 				struct sk_buff **to_free)
+-#endif
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	return nss_qdisc_enqueue(skb, sch);
+-#else
+ 	return nss_qdisc_enqueue(skb, sch, to_free);
+-#endif
+ }
+ 
+ /*
+@@ -58,19 +50,6 @@ static struct sk_buff *nss_blackhole_deq
+ 	return nss_qdisc_dequeue(sch);
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-/*
+- * nss_blackhole_drop()
+- *	The following function drops a packet from HLOS queue.
+- *
+- * Note, this does not drop packets from queues in the NSS. We do not support that.
+- */
+-static unsigned int nss_blackhole_drop(struct Qdisc *sch)
+-{
+-	nss_qdisc_info("qdisc %x dropping\n", sch->handle);
+-	return nss_qdisc_drop(sch);
+-}
+-#endif
+ 
+ /*
+  * nss_blackhole_reset()
+@@ -98,12 +77,8 @@ static void nss_blackhole_destroy(struct
+  * nss_blackhole_change()
+  *	Function call used to configure the parameters of the nss blackhole qdisc.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_blackhole_change(struct Qdisc *sch, struct nlattr *opt)
+-#else
+ static int nss_blackhole_change(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_blackhole_sched_data *q;
+ 	struct nlattr *tb[TCA_NSSBLACKHOLE_MAX + 1];
+@@ -114,11 +89,7 @@ static int nss_blackhole_change(struct Q
+ 		return 0;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_blackhole_policy, tb, TCA_NSSBLACKHOLE_MAX, TCA_NSSBLACKHOLE_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_blackhole_policy, tb, TCA_NSSBLACKHOLE_MAX, TCA_NSSBLACKHOLE_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		return -EINVAL;
+ 	}
+@@ -170,15 +141,9 @@ static int nss_blackhole_change(struct Q
+  * nss_blackhole_init()
+  *	Initializes a nss blackhole qdisc.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_blackhole_init(struct Qdisc *sch, struct nlattr *opt)
+-{
+-	struct netlink_ext_ack *extack = NULL;
+-#else
+ static int nss_blackhole_init(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+ {
+-#endif
+ 	struct nss_qdisc *nq = qdisc_priv(sch);
+ 	struct nlattr *tb[TCA_NSSBLACKHOLE_MAX + 1];
+ 	struct tc_nssblackhole_qopt *qopt;
+@@ -190,11 +155,7 @@ static int nss_blackhole_init(struct Qdi
+ 	if (!opt) {
+ 		accel_mode = TCA_NSS_ACCEL_MODE_PPE;
+ 	} else {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-		qopt = nss_qdisc_qopt_get(opt, nss_blackhole_policy, tb, TCA_NSSBLACKHOLE_MAX, TCA_NSSBLACKHOLE_PARMS);
+-#else
+ 		qopt = nss_qdisc_qopt_get(opt, nss_blackhole_policy, tb, TCA_NSSBLACKHOLE_MAX, TCA_NSSBLACKHOLE_PARMS, extack);
+-#endif
+ 		if (!qopt) {
+ 			return -EINVAL;
+ 		}
+@@ -210,11 +171,7 @@ static int nss_blackhole_init(struct Qdi
+ 	}
+ 
+ 	nss_qdisc_info("qdisc %x initialized with parent %x\n", sch->handle, sch->parent);
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nss_blackhole_change(sch, opt) < 0) {
+-#else
+ 	if (nss_blackhole_change(sch, opt, extack) < 0) {
+-#endif
+ 		nss_qdisc_destroy(nq);
+ 		return -EINVAL;
+ 	}
+@@ -279,9 +236,6 @@ struct Qdisc_ops nss_blackhole_qdisc_ops
+ 	.enqueue	=	nss_blackhole_enqueue,
+ 	.dequeue	=	nss_blackhole_dequeue,
+ 	.peek		=	nss_blackhole_peek,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	.drop		=	nss_blackhole_drop,
+-#endif
+ 	.init		=	nss_blackhole_init,
+ 	.reset		=	nss_blackhole_reset,
+ 	.destroy	=	nss_blackhole_destroy,
+--- a/nss_qdisc/nss_codel.c
++++ b/nss_qdisc/nss_codel.c
+@@ -76,18 +76,10 @@ static struct nla_policy nss_codel_polic
+  * nss_codel_enqueue()
+  *	Enqueue a packet into nss_codel queue in NSS firmware (bounce).
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-static int nss_codel_enqueue(struct sk_buff *skb, struct Qdisc *sch)
+-#else
+ static int nss_codel_enqueue(struct sk_buff *skb, struct Qdisc *sch,
+ 				struct sk_buff **to_free)
+-#endif
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	return nss_qdisc_enqueue(skb, sch);
+-#else
+ 	return nss_qdisc_enqueue(skb, sch, to_free);
+-#endif
+ }
+ 
+ /*
+@@ -99,18 +91,6 @@ static struct sk_buff *nss_codel_dequeue
+ 	return nss_qdisc_dequeue(sch);
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-/*
+- * nss_codel_drop()
+- *	Drops a packet from the bounce complete queue.
+- *
+- * Note: this does not drop packets from the NSS queues.
+- */
+-static unsigned int nss_codel_drop(struct Qdisc *sch)
+-{
+-	return nss_qdisc_drop(sch);
+-}
+-#endif
+ 
+ /*
+  * nss_codel_reset()
+@@ -241,12 +221,8 @@ static int nss_codel_mem_sz_get(struct Q
+  * nss_codel_change()
+  *	Used to configure the nss_codel queue in NSS firmware.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_codel_change(struct Qdisc *sch, struct nlattr *opt)
+-#else
+ static int nss_codel_change(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_codel_sched_data *q = qdisc_priv(sch);
+ 	struct nlattr *tb[TCA_NSSCODEL_MAX + 1];
+@@ -258,11 +234,7 @@ static int nss_codel_change(struct Qdisc
+ 	struct nss_shaper_node_config *config;
+ 	bool free_flow_queue = true;
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_codel_policy, tb, TCA_NSSCODEL_MAX, TCA_NSSCODEL_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_codel_policy, tb, TCA_NSSCODEL_MAX, TCA_NSSCODEL_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		return -EINVAL;
+ 	}
+@@ -398,15 +370,9 @@ fail:
+  * nss_codel_init()
+  *	Initializes the nss_codel qdisc.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_codel_init(struct Qdisc *sch, struct nlattr *opt)
+-{
+-	struct netlink_ext_ack *extack = NULL;
+-#else
+ static int nss_codel_init(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+ {
+-#endif
+ 	struct nss_qdisc *nq = qdisc_priv(sch);
+ 	struct nlattr *tb[TCA_NSSCODEL_MAX + 1];
+ 	struct tc_nsscodel_qopt *qopt;
+@@ -415,11 +381,7 @@ static int nss_codel_init(struct Qdisc *
+ 		return -EINVAL;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_codel_policy, tb, TCA_NSSCODEL_MAX, TCA_NSSCODEL_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_codel_policy, tb, TCA_NSSCODEL_MAX, TCA_NSSCODEL_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		return -EINVAL;
+ 	}
+@@ -442,11 +404,7 @@ static int nss_codel_init(struct Qdisc *
+ 		return -EINVAL;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nss_codel_change(sch, opt) < 0) {
+-#else
+ 	if (nss_codel_change(sch, opt, extack) < 0) {
+-#endif
+ 		nss_qdisc_destroy(nq);
+ 		return -EINVAL;
+ 	}
+@@ -540,9 +498,6 @@ struct Qdisc_ops nss_codel_qdisc_ops __r
+ 	.enqueue	=	nss_codel_enqueue,
+ 	.dequeue	=	nss_codel_dequeue,
+ 	.peek		=	nss_codel_peek,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	.drop		=	nss_codel_drop,
+-#endif
+ 	.init		=	nss_codel_init,
+ 	.reset		=	nss_codel_reset,
+ 	.destroy	=	nss_codel_destroy,
+@@ -561,9 +516,6 @@ struct Qdisc_ops nss_fq_codel_qdisc_ops
+ 	.enqueue	=	nss_codel_enqueue,
+ 	.dequeue	=	nss_codel_dequeue,
+ 	.peek		=	nss_codel_peek,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	.drop		=	nss_codel_drop,
+-#endif
+ 	.init		=	nss_codel_init,
+ 	.reset		=	nss_codel_reset,
+ 	.destroy	=	nss_codel_destroy,
+--- a/nss_qdisc/nss_fifo.c
++++ b/nss_qdisc/nss_fifo.c
+@@ -29,18 +29,10 @@ static struct nla_policy nss_fifo_policy
+ 	[TCA_NSSFIFO_PARMS] = { .len = sizeof(struct tc_nssfifo_qopt) },
+ };
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-static int nss_fifo_enqueue(struct sk_buff *skb, struct Qdisc *sch)
+-#else
+ static int nss_fifo_enqueue(struct sk_buff *skb, struct Qdisc *sch,
+ 				struct sk_buff **to_free)
+-#endif
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	return nss_qdisc_enqueue(skb, sch);
+-#else
+ 	return nss_qdisc_enqueue(skb, sch, to_free);
+-#endif
+ }
+ 
+ static struct sk_buff *nss_fifo_dequeue(struct Qdisc *sch)
+@@ -48,13 +40,6 @@ static struct sk_buff *nss_fifo_dequeue(
+ 	return nss_qdisc_dequeue(sch);
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-static unsigned int nss_fifo_drop(struct Qdisc *sch)
+-{
+-	nss_qdisc_info("nss_fifo dropping");
+-	return nss_qdisc_drop(sch);
+-}
+-#endif
+ 
+ static void nss_fifo_reset(struct Qdisc *sch)
+ {
+@@ -70,12 +55,8 @@ static void nss_fifo_destroy(struct Qdis
+ 	nss_qdisc_info("nss_fifo destroyed");
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_fifo_params_validate_and_save(struct Qdisc *sch, struct nlattr *opt)
+-#else
+ static int nss_fifo_params_validate_and_save(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nlattr *tb[TCA_NSSFIFO_MAX + 1];
+ 	struct tc_nssfifo_qopt *qopt;
+@@ -86,11 +67,7 @@ static int nss_fifo_params_validate_and_
+ 		return -EINVAL;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_fifo_policy, tb, TCA_NSSFIFO_MAX, TCA_NSSFIFO_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_fifo_policy, tb, TCA_NSSFIFO_MAX, TCA_NSSFIFO_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		nss_qdisc_warning("Invalid input to fifo %x", sch->handle);
+ 		return -EINVAL;
+@@ -117,11 +94,7 @@ static int nss_fifo_params_validate_and_
+ }
+ 
+ #if defined(NSS_QDISC_PPE_SUPPORT)
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_fifo_ppe_change(struct Qdisc *sch, struct nlattr *opt)
+-#else
+ static int nss_fifo_ppe_change(struct Qdisc *sch, struct nlattr *opt, struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_fifo_sched_data *q = qdisc_priv(sch);
+ 	struct nss_qdisc *nq = &q->nq;
+@@ -170,11 +143,7 @@ fail:
+ 	/*
+ 	 * Fallback to nss qdisc if PPE Qdisc configuration failed at init time.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nss_ppe_fallback_to_nss(&q->nq, opt) < 0) {
+-#else
+ 	if (nss_ppe_fallback_to_nss(&q->nq, opt, extack) < 0) {
+-#endif
+ 	nss_qdisc_warning("nss_fifo %x fallback to nss failed\n", sch->handle);
+ 		return -EINVAL;
+ 	}
+@@ -182,33 +151,21 @@ fail:
+ }
+ #endif
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_fifo_change(struct Qdisc *sch, struct nlattr *opt)
+-#else
+ static int nss_fifo_change(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_fifo_sched_data *q = qdisc_priv(sch);
+ 	struct nss_qdisc *nq = &q->nq;
+ 	struct nss_if_msg nim;
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nss_fifo_params_validate_and_save(sch, opt) < 0) {
+-#else
+ 	if (nss_fifo_params_validate_and_save(sch, opt, extack) < 0) {
+-#endif
+ 		nss_qdisc_warning("nss_fifo %px params validate and save failed\n", sch);
+ 		return -EINVAL;
+ 	}
+ 
+ #if defined(NSS_QDISC_PPE_SUPPORT)
+ 	if (nq->mode == NSS_QDISC_MODE_PPE) {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-		if (nss_fifo_ppe_change(sch, opt) < 0) {
+-#else
+ 		if (nss_fifo_ppe_change(sch, opt, extack) < 0) {
+-#endif
+ 			nss_qdisc_warning("nss_fifo %px params validate and save failed\n", sch);
+ 			return -EINVAL;
+ 		}
+@@ -245,15 +202,9 @@ static int nss_fifo_change(struct Qdisc
+ 	return 0;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_fifo_init(struct Qdisc *sch, struct nlattr *opt)
+-{
+-	struct netlink_ext_ack *extack = NULL;
+-#else
+ static int nss_fifo_init(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+ {
+-#endif
+ 	struct nss_qdisc *nq = qdisc_priv(sch);
+ 	struct nlattr *tb[TCA_NSSFIFO_MAX + 1];
+ 	struct tc_nssfifo_qopt *qopt;
+@@ -265,11 +216,7 @@ static int nss_fifo_init(struct Qdisc *s
+ 	nss_qdisc_info("Initializing Fifo - type %d\n", NSS_SHAPER_NODE_TYPE_FIFO);
+ 	nss_fifo_reset(sch);
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_fifo_policy, tb, TCA_NSSFIFO_MAX, TCA_NSSFIFO_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_fifo_policy, tb, TCA_NSSFIFO_MAX, TCA_NSSFIFO_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		nss_qdisc_warning("Invalid input to fifo %x", sch->handle);
+ 		return -EINVAL;
+@@ -282,11 +229,7 @@ static int nss_fifo_init(struct Qdisc *s
+ 	}
+ 
+ 	nss_qdisc_info("NSS fifo initialized - handle %x parent %x\n", sch->handle, sch->parent);
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nss_fifo_change(sch, opt) < 0) {
+-#else
+ 	if (nss_fifo_change(sch, opt, extack) < 0) {
+-#endif
+ 		nss_qdisc_destroy(nq);
+ 		return -EINVAL;
+ 	}
+@@ -340,9 +283,6 @@ struct Qdisc_ops nss_pfifo_qdisc_ops __r
+ 	.enqueue	=	nss_fifo_enqueue,
+ 	.dequeue	=	nss_fifo_dequeue,
+ 	.peek		=	nss_fifo_peek,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	.drop		=	nss_fifo_drop,
+-#endif
+ 	.init		=	nss_fifo_init,
+ 	.reset		=	nss_fifo_reset,
+ 	.destroy	=	nss_fifo_destroy,
+@@ -357,9 +297,6 @@ struct Qdisc_ops nss_bfifo_qdisc_ops __r
+ 	.enqueue	=	nss_fifo_enqueue,
+ 	.dequeue	=	nss_fifo_dequeue,
+ 	.peek		=	nss_fifo_peek,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	.drop		=	nss_fifo_drop,
+-#endif
+ 	.init		=	nss_fifo_init,
+ 	.reset		=	nss_fifo_reset,
+ 	.destroy	=	nss_fifo_destroy,
+--- a/nss_qdisc/nss_htb.c
++++ b/nss_qdisc/nss_htb.c
+@@ -87,13 +87,8 @@ static inline struct nss_htb_class_data
+  * nss_htb_class_params_validate_and_save()
+  *	Validates and saves the qdisc configuration parameters.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_htb_class_params_validate_and_save(struct Qdisc *sch, struct nlattr **tca,
+-					struct nss_htb_param *param)
+-#else
+ static int nss_htb_class_params_validate_and_save(struct Qdisc *sch, struct nlattr **tca,
+ 					struct nss_htb_param *param, struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nlattr *opt = tca[TCA_OPTIONS];
+ 	struct nlattr *tb[TCA_NSSHTB_MAX + 1];
+@@ -109,11 +104,7 @@ static int nss_htb_class_params_validate
+ 		return -EINVAL;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_htb_policy, tb, TCA_NSSHTB_MAX, TCA_NSSHTB_CLASS_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_htb_policy, tb, TCA_NSSHTB_MAX, TCA_NSSHTB_CLASS_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		return -EINVAL;
+ 	}
+@@ -280,16 +271,9 @@ static int nss_htb_ppe_change_class(stru
+  * nss_htb_change_class()
+  *	Configures a new class.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_htb_change_class(struct Qdisc *sch, u32 classid, u32 parentid,
+-		  struct nlattr **tca, unsigned long *arg)
+-{
+-	struct netlink_ext_ack *extack = NULL;
+-#else
+ static int nss_htb_change_class(struct Qdisc *sch, u32 classid, u32 parentid,
+ 		  struct nlattr **tca, unsigned long *arg, struct netlink_ext_ack *extack)
+ {
+-#endif
+ 	struct nss_htb_sched_data *q = qdisc_priv(sch);
+ 	struct nss_htb_class_data *cl = (struct nss_htb_class_data *)*arg;
+ 	struct nss_htb_class_data *parent;
+@@ -303,11 +287,7 @@ static int nss_htb_change_class(struct Q
+ 
+ 	nss_qdisc_trace("configuring htb class %x of qdisc %x\n", classid, sch->handle);
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nss_htb_class_params_validate_and_save(sch, tca, &param) < 0) {
+-#else
+ 	if (nss_htb_class_params_validate_and_save(sch, tca, &param, extack) < 0) {
+-#endif
+ 		nss_qdisc_warning("validation of configuration parameters for htb class %x failed\n",
+ 					sch->handle);
+ 		return -EINVAL;
+@@ -516,7 +496,7 @@ static void nss_htb_destroy_class(struct
+  * nss_htb_delete_class()
+  *	Detaches a class from operation, but does not destroy it.
+  */
+-static int nss_htb_delete_class(struct Qdisc *sch, unsigned long arg)
++static int nss_htb_delete_class(struct Qdisc *sch, unsigned long arg, struct netlink_ext_ack *extack)
+ {
+ 	struct nss_htb_sched_data *q = qdisc_priv(sch);
+ 	struct nss_htb_class_data *cl = (struct nss_htb_class_data *)arg;
+@@ -572,9 +552,7 @@ static int nss_htb_delete_class(struct Q
+ 	if (!cl->parent) {
+ 		refcnt = nss_qdisc_atomic_sub_return(&cl->nq);
+ 		sch_tree_unlock(sch);
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0))
+ 		nss_htb_destroy_class(sch, cl);
+-#endif
+ 		return 0;
+ 	}
+ 
+@@ -598,9 +576,7 @@ static int nss_htb_delete_class(struct Q
+ 	 * explicitly as there is no put_class which would have called
+ 	 * nss_htb_destroy_class when refcnt becomes zero.
+ 	 */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0))
+ 	nss_htb_destroy_class(sch, cl);
+-#endif
+ 	return 0;
+ }
+ 
+@@ -608,12 +584,8 @@ static int nss_htb_delete_class(struct Q
+  * nss_htb_graft_class()
+  *	Replaces the qdisc attached to the provided class.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_htb_graft_class(struct Qdisc *sch, unsigned long arg, struct Qdisc *new, struct Qdisc **old)
+-#else
+ static int nss_htb_graft_class(struct Qdisc *sch, unsigned long arg, struct Qdisc *new, struct Qdisc **old,
+ 				struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_htb_class_data *cl = (struct nss_htb_class_data *)arg;
+ 	struct nss_if_msg nim_detach;
+@@ -638,7 +610,7 @@ static int nss_htb_graft_class(struct Qd
+ 	nss_qdisc_info("grafting old: %x with new: %x\n", (*old)->handle, new->handle);
+ 	if (*old != &noop_qdisc) {
+ 		nss_qdisc_trace("detaching old: %x\n", (*old)->handle);
+-		nq_old = qdisc_priv(*old);
++		nq_old = qdisc_priv(((struct Qdisc *)(*old)));
+ 		nim_detach.msg.shaper_configure.config.msg.shaper_node_config.qos_tag = cl->nq.qos_tag;
+ 		nim_detach.msg.shaper_configure.config.msg.shaper_node_config.snc.htb_group_detach.child_qos_tag = nq_old->qos_tag;
+ 		if (nss_qdisc_node_detach(&cl->nq, nq_old, &nim_detach,
+@@ -700,43 +672,6 @@ static void nss_htb_qlen_notify(struct Q
+ 	 */
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-/*
+- * nss_htb_get_class()
+- *	Fetches the class pointer if provided the classid.
+- */
+-static unsigned long nss_htb_get_class(struct Qdisc *sch, u32 classid)
+-{
+-	struct nss_htb_class_data *cl = nss_htb_find_class(classid, sch);
+-
+-	if (cl != NULL) {
+-		nss_qdisc_trace("fetched htb class %x from qdisc %x\n",
+-				cl->nq.qos_tag, sch->handle);
+-		atomic_add(1, &cl->nq.refcnt);
+-	}
+-
+-	return (unsigned long)cl;
+-}
+-
+-/*
+- * nss_htb_put_class()
+- *	Reduces reference count for this class.
+- */
+-static void nss_htb_put_class(struct Qdisc *sch, unsigned long arg)
+-{
+-	struct nss_htb_class_data *cl = (struct nss_htb_class_data *)arg;
+-	nss_qdisc_trace("executing put on htb class %x in qdisc %x\n",
+-			cl->nq.qos_tag, sch->handle);
+-
+-	/*
+-	 * We are safe to destroy the qdisc if the reference count
+-	 * goes down to 0.
+-	 */
+-	if (nss_qdisc_atomic_sub_return(&cl->nq) == 0) {
+-		nss_htb_destroy_class(sch, cl);
+-	}
+-}
+-#else
+ /*
+  * nss_htb_search_class()
+  *	Fetches the class pointer if provided the classid.
+@@ -747,7 +682,6 @@ static unsigned long nss_htb_search_clas
+ 
+ 	return (unsigned long)cl;
+ }
+-#endif
+ 
+ /*
+  * nss_htb_dump_class()
+@@ -843,12 +777,8 @@ static void nss_htb_walk(struct Qdisc *s
+  * nss_htb_change_qdisc()
+  *	Can be used to configure a htb qdisc.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_htb_change_qdisc(struct Qdisc *sch, struct nlattr *opt)
+-#else
+ static int nss_htb_change_qdisc(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_htb_sched_data *q = qdisc_priv(sch);
+ 	struct nlattr *tb[TCA_NSSHTB_MAX + 1];
+@@ -874,11 +804,7 @@ static int nss_htb_change_qdisc(struct Q
+ 	/*
+ 	 * If it is not NULL, parse to get qopt.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_htb_policy, tb, TCA_NSSHTB_MAX, TCA_NSSHTB_QDISC_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_htb_policy, tb, TCA_NSSHTB_MAX, TCA_NSSHTB_QDISC_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		return -EINVAL;
+ 	}
+@@ -1003,15 +929,9 @@ static void nss_htb_destroy_qdisc(struct
+  * nss_htb_init_qdisc()
+  *	Initializes the htb qdisc.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_htb_init_qdisc(struct Qdisc *sch, struct nlattr *opt)
+-{
+-	struct netlink_ext_ack *extack = NULL;
+-#else
+ static int nss_htb_init_qdisc(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+ {
+-#endif
+ 	struct nss_htb_sched_data *q = qdisc_priv(sch);
+ 	struct nlattr *tb[TCA_NSSHTB_MAX + 1];
+ 	struct tc_nsshtb_qopt *qopt;
+@@ -1030,11 +950,7 @@ static int nss_htb_init_qdisc(struct Qdi
+ 	if (!opt) {
+ 		accel_mode = TCA_NSS_ACCEL_MODE_PPE;
+ 	} else {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-		qopt = nss_qdisc_qopt_get(opt, nss_htb_policy, tb, TCA_NSSHTB_MAX, TCA_NSSHTB_QDISC_PARMS);
+-#else
+ 		qopt = nss_qdisc_qopt_get(opt, nss_htb_policy, tb, TCA_NSSHTB_MAX, TCA_NSSHTB_QDISC_PARMS, extack);
+-#endif
+ 		if (!qopt) {
+ 			return -EINVAL;
+ 		}
+@@ -1057,11 +973,7 @@ static int nss_htb_init_qdisc(struct Qdi
+ 	/*
+ 	 * Tune HTB parameters
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nss_htb_change_qdisc(sch, opt) < 0) {
+-#else
+ 	if (nss_htb_change_qdisc(sch, opt, extack) < 0) {
+-#endif
+ 		nss_qdisc_destroy(&q->nq);
+ 		return -EINVAL;
+ 	}
+@@ -1102,18 +1014,10 @@ static int nss_htb_dump_qdisc(struct Qdi
+  * nss_htb_enqueue()
+  *	Enqueues a skb to htb qdisc.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-static int nss_htb_enqueue(struct sk_buff *skb, struct Qdisc *sch)
+-#else
+ static int nss_htb_enqueue(struct sk_buff *skb, struct Qdisc *sch,
+ 				struct sk_buff **to_free)
+-#endif
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	return nss_qdisc_enqueue(skb, sch);
+-#else
+ 	return nss_qdisc_enqueue(skb, sch, to_free);
+-#endif
+ }
+ 
+ /*
+@@ -1125,19 +1029,6 @@ static struct sk_buff *nss_htb_dequeue(s
+ 	return nss_qdisc_dequeue(sch);
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-/*
+- * nss_htb_drop()
+- *	Drops a single skb from linux queue, if not empty.
+- *
+- * Does not drop packets that are queued in the NSS.
+- */
+-static unsigned int nss_htb_drop(struct Qdisc *sch)
+-{
+-	nss_qdisc_trace("drop called on htb qdisc %x\n", sch->handle);
+-	return nss_qdisc_drop(sch);
+-}
+-#endif
+ 
+ /*
+  * Registration structure for htb class
+@@ -1148,17 +1039,8 @@ const struct Qdisc_class_ops nss_htb_cla
+ 	.graft		= nss_htb_graft_class,
+ 	.leaf		= nss_htb_leaf_class,
+ 	.qlen_notify	= nss_htb_qlen_notify,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-	.get		= nss_htb_get_class,
+-	.put		= nss_htb_put_class,
+-#else
+ 	.find		=	nss_htb_search_class,
+-#endif
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	.tcf_chain	= nss_qdisc_tcf_chain,
+-#else
+ 	.tcf_block	= nss_qdisc_tcf_block,
+-#endif
+ 	.bind_tcf	= nss_qdisc_tcf_bind,
+ 	.unbind_tcf	= nss_qdisc_tcf_unbind,
+ 	.dump		= nss_htb_dump_class,
+@@ -1179,9 +1061,6 @@ struct Qdisc_ops nss_htb_qdisc_ops __rea
+ 	.enqueue	= nss_htb_enqueue,
+ 	.dequeue	= nss_htb_dequeue,
+ 	.peek		= qdisc_peek_dequeued,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	.drop		= nss_htb_drop,
+-#endif
+ 	.cl_ops		= &nss_htb_class_ops,
+ 	.priv_size	= sizeof(struct nss_htb_sched_data),
+ 	.owner		= THIS_MODULE
+--- a/nss_qdisc/nss_ppe.c
++++ b/nss_qdisc/nss_ppe.c
+@@ -1853,11 +1853,7 @@ int nss_ppe_set_parent(struct Qdisc *sch
+ 				return NSS_PPE_QDISC_PARENT_NOT_EXISTING;
+ 			}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-			parent_class = parent_qdisc->ops->cl_ops->get(parent_qdisc, parent);
+-#else
+ 			parent_class = parent_qdisc->ops->cl_ops->find(parent_qdisc, parent);
+-#endif
+ 			if (!parent_class) {
+ 				nq->parent = NULL;
+ 				nss_qdisc_info("HW qdisc/class %px cannot be attached to non-existing class %x\n", nq->qdisc, parent);
+@@ -1866,9 +1862,6 @@ int nss_ppe_set_parent(struct Qdisc *sch
+ 			}
+ 
+ 			nq->parent = (struct nss_qdisc *)parent_class;
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-			parent_qdisc->ops->cl_ops->put(parent_qdisc, parent_class);
+-#endif
+ 		}
+ 	}
+ 
+@@ -2246,22 +2239,14 @@ fail:
+  * nss_ppe_fallback_to_nss()
+  *	Calls the initialization of NSS Qdisc when PPE initialization fails.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-int nss_ppe_fallback_to_nss(struct nss_qdisc *nq, struct nlattr *opt)
+-#else
+ int nss_ppe_fallback_to_nss(struct nss_qdisc *nq, struct nlattr *opt, struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	nss_qdisc_destroy(nq);
+ 
+ 	memset(&nq->npq, 0, sizeof(struct nss_ppe_qdisc));
+ 	nq->ppe_init_failed = true;
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nq->qdisc->ops->init(nq->qdisc, opt) < 0) {
+-#else
+ 	if (nq->qdisc->ops->init(nq->qdisc, opt, extack) < 0) {
+-#endif
+ 			nss_qdisc_warning("Fallback to NSS Qdisc failed.\n");
+ 			return -EINVAL;
+ 	}
+--- a/nss_qdisc/nss_ppe.h
++++ b/nss_qdisc/nss_ppe.h
+@@ -269,11 +269,7 @@ extern int nss_ppe_configure(struct nss_
+  * nss_ppe_fallback_to_nss()
+  *	Calls the initialization of NSS Qdisc when PPE initialization fails.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-extern int nss_ppe_fallback_to_nss(struct nss_qdisc *nq, struct nlattr *opt);
+-#else
+ extern int nss_ppe_fallback_to_nss(struct nss_qdisc *nq, struct nlattr *opt, struct netlink_ext_ack *extack);
+-#endif
+ 
+ /*
+  * nss_ppe_destroy()
+--- a/nss_qdisc/nss_prio.c
++++ b/nss_qdisc/nss_prio.c
+@@ -37,18 +37,10 @@ static struct nla_policy nss_prio_policy
+  * nss_prio_enqueue()
+  *	Enqueues a skb to nssprio qdisc.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-static int nss_prio_enqueue(struct sk_buff *skb, struct Qdisc *sch)
+-#else
+ static int nss_prio_enqueue(struct sk_buff *skb, struct Qdisc *sch,
+ 				struct sk_buff **to_free)
+-#endif
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	return nss_qdisc_enqueue(skb, sch);
+-#else
+ 	return nss_qdisc_enqueue(skb, sch, to_free);
+-#endif
+ }
+ 
+ /*
+@@ -60,18 +52,6 @@ static struct sk_buff *nss_prio_dequeue(
+ 	return nss_qdisc_dequeue(sch);
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-/*
+- * nss_prio_drop()
+- *	Drops a single skb from linux queue, if not empty.
+- *
+- * Does not drop packets that are queued in the NSS.
+- */
+-static unsigned int nss_prio_drop(struct Qdisc *sch)
+-{
+-	return nss_qdisc_drop(sch);
+-}
+-#endif
+ 
+ /*
+  * nss_prio_peek()
+@@ -128,11 +108,7 @@ static void nss_prio_destroy(struct Qdis
+ 		/*
+ 		 * We can now destroy it
+ 		 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0))
+-		qdisc_destroy(q->queues[i]);
+-#else
+ 		qdisc_put(q->queues[i]);
+-#endif
+ 	}
+ 
+ 	/*
+@@ -167,12 +143,8 @@ static int nss_prio_get_max_bands(struct
+  * nss_prio_change()
+  *	Function call to configure the nssprio parameters
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_prio_change(struct Qdisc *sch, struct nlattr *opt)
+-#else
+ static int nss_prio_change(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nlattr *tb[TCA_NSSPRIO_MAX + 1];
+ 	struct nss_prio_sched_data *q;
+@@ -196,11 +168,7 @@ static int nss_prio_change(struct Qdisc
+ 		return 0;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_prio_policy, tb, TCA_NSSPRIO_MAX, TCA_NSSPRIO_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_prio_policy, tb, TCA_NSSPRIO_MAX, TCA_NSSPRIO_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		return -EINVAL;
+ 	}
+@@ -229,15 +197,9 @@ static int nss_prio_change(struct Qdisc
+  * nss_prio_init()
+  *	Initializes the nssprio qdisc
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_prio_init(struct Qdisc *sch, struct nlattr *opt)
+-{
+-	struct netlink_ext_ack *extack = NULL;
+-#else
+ static int nss_prio_init(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+ {
+-#endif
+ 	struct nss_prio_sched_data *q = qdisc_priv(sch);
+ 	struct nlattr *tb[TCA_NSSPRIO_MAX + 1];
+ 	struct tc_nssprio_qopt *qopt;
+@@ -251,11 +213,7 @@ static int nss_prio_init(struct Qdisc *s
+ 	if (!opt) {
+ 		accel_mode = TCA_NSS_ACCEL_MODE_PPE;
+ 	} else {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-		qopt = nss_qdisc_qopt_get(opt, nss_prio_policy, tb, TCA_NSSPRIO_MAX, TCA_NSSPRIO_PARMS);
+-#else
+ 		qopt = nss_qdisc_qopt_get(opt, nss_prio_policy, tb, TCA_NSSPRIO_MAX, TCA_NSSPRIO_PARMS, extack);
+-#endif
+ 		if (!qopt) {
+ 			return -EINVAL;
+ 		}
+@@ -270,11 +228,7 @@ static int nss_prio_init(struct Qdisc *s
+ 	nss_qdisc_info("Nssprio initialized - handle %x parent %x\n",
+ 			sch->handle, sch->parent);
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nss_prio_change(sch, opt) < 0) {
+-#else
+ 	if (nss_prio_change(sch, opt, extack) < 0) {
+-#endif
+ 		nss_qdisc_destroy(&q->nq);
+ 		return -EINVAL;
+ 	}
+@@ -312,14 +266,9 @@ nla_put_failure:
+  * nss_prio_graft()
+  *	Replaces existing child qdisc with the new qdisc that is passed.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_prio_graft(struct Qdisc *sch, unsigned long arg,
+-				struct Qdisc *new, struct Qdisc **old)
+-#else
+ static int nss_prio_graft(struct Qdisc *sch, unsigned long arg,
+ 				struct Qdisc *new, struct Qdisc **old,
+ 				struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_prio_sched_data *q = qdisc_priv(sch);
+ 	struct nss_qdisc *nq_new = qdisc_priv(new);
+@@ -341,7 +290,7 @@ static int nss_prio_graft(struct Qdisc *
+ 
+ 	nss_qdisc_info("Grafting old: %px with new: %px\n", *old, new);
+ 	if (*old != &noop_qdisc) {
+-		struct nss_qdisc *nq_old = qdisc_priv(*old);
++		struct nss_qdisc *nq_old = qdisc_priv(((struct Qdisc *)(*old)));
+ 		nss_qdisc_info("Detaching old: %px\n", *old);
+ 		nim_detach.msg.shaper_configure.config.msg.shaper_node_config.qos_tag = q->nq.qos_tag;
+ 
+@@ -404,33 +353,6 @@ static struct Qdisc *nss_prio_leaf(struc
+ 	return q->queues[band];
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-/*
+- * nss_prio_get()
+- *	Returns the band if provided the classid.
+- */
+-static unsigned long nss_prio_get(struct Qdisc *sch, u32 classid)
+-{
+-	struct nss_prio_sched_data *q = qdisc_priv(sch);
+-	unsigned long band = TC_H_MIN(classid);
+-
+-	nss_qdisc_info("Inside get. Handle - %x Classid - %x Band %lu Available band %u\n", sch->handle, classid, band, q->bands);
+-
+-	if (band > q->bands)
+-		return 0;
+-
+-	return band;
+-}
+-
+-/*
+- * nss_prio_put()
+- *	Unused API.
+- */
+-static void nss_prio_put(struct Qdisc *sch, unsigned long arg)
+-{
+-	nss_qdisc_info("Inside prio put\n");
+-}
+-#else
+ /*
+  * nss_prio_search()
+  *	Returns the band if provided the classid.
+@@ -447,7 +369,6 @@ static unsigned long nss_prio_search(str
+ 
+ 	return band;
+ }
+-#endif
+ 
+ /*
+  * nss_prio_walk()
+@@ -518,17 +439,8 @@ static int nss_prio_dump_class_stats(str
+ const struct Qdisc_class_ops nss_prio_class_ops = {
+ 	.graft		=	nss_prio_graft,
+ 	.leaf		=	nss_prio_leaf,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-	.get		=	nss_prio_get,
+-	.put		=	nss_prio_put,
+-#else
+ 	.find       =   nss_prio_search,
+-#endif
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	.tcf_chain	=	nss_qdisc_tcf_chain,
+-#else
+ 	.tcf_block	=	nss_qdisc_tcf_block,
+-#endif
+ 	.bind_tcf	=	nss_qdisc_tcf_bind,
+ 	.unbind_tcf	=	nss_qdisc_tcf_unbind,
+ 	.walk		=	nss_prio_walk,
+@@ -547,9 +459,6 @@ struct Qdisc_ops nss_prio_qdisc_ops __re
+ 	.enqueue	=	nss_prio_enqueue,
+ 	.dequeue	=	nss_prio_dequeue,
+ 	.peek		=	nss_prio_peek,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	.drop		=	nss_prio_drop,
+-#endif
+ 	.init		=	nss_prio_init,
+ 	.reset		=	nss_prio_reset,
+ 	.destroy	=	nss_prio_destroy,
+--- a/nss_qdisc/nss_qdisc.c
++++ b/nss_qdisc/nss_qdisc.c
+@@ -374,7 +374,6 @@ static int nss_qdisc_refresh_bshaper_ass
+ 	br_update.port_list_count = 0;
+ 	br_update.unassign_count = 0;
+ 
+-	read_lock(&dev_base_lock);
+ 	dev = first_net_device(&init_net);
+ 
+ 	while(dev) {
+@@ -384,11 +383,7 @@ static int nss_qdisc_refresh_bshaper_ass
+ 		nss_qdisc_info("Scanning device %s", dev->name);
+ 
+ 		rcu_read_lock();
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 3, 0))
+ 		br_port = br_port_get_rcu(dev);
+-#else
+-		br_port = rcu_dereference(dev->br_port);
+-#endif
+ 
+ 		if (!br_port || !br_port->br) {
+ 			rcu_read_unlock();
+@@ -421,7 +416,7 @@ static int nss_qdisc_refresh_bshaper_ass
+ nextdev:
+ 		dev = next_net_device(dev);
+ 	}
+-	read_unlock(&dev_base_lock);
++
+ 
+ 	nss_qdisc_info("List count %d\n", br_update.port_list_count);
+ 
+@@ -923,11 +918,7 @@ static inline void nss_qdisc_add_to_tail
+ 	 * We do not use the qdisc_enqueue_tail() API here in order
+ 	 * to prevent stats from getting updated by the API.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	__skb_queue_tail(&sch->q, skb);
+-#else
+ 	__qdisc_enqueue_tail(skb, &sch->q);
+-#endif
+ 
+ 	spin_unlock_bh(&nq->bounce_protection_lock);
+ };
+@@ -942,11 +933,7 @@ static inline void nss_qdisc_add_to_tail
+ 	 * We do not use the qdisc_enqueue_tail() API here in order
+ 	 * to prevent stats from getting updated by the API.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	__skb_queue_tail(&sch->q, skb);
+-#else
+ 	__qdisc_enqueue_tail(skb, &sch->q);
+-#endif
+ };
+ 
+ /*
+@@ -968,11 +955,7 @@ static inline struct sk_buff *nss_qdisc_
+ 	 * We use __skb_dequeue() to ensure that
+ 	 * stats don't get updated twice.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 9, 0))
+-	skb = __skb_dequeue(&sch->q);
+-#else
+ 	skb = __qdisc_dequeue_head(&sch->q);
+-#endif
+ 	spin_unlock_bh(&nq->bounce_protection_lock);
+ 	return skb;
+ };
+@@ -987,11 +970,7 @@ static inline struct sk_buff *nss_qdisc_
+ 	 * We use __skb_dequeue() to ensure that
+ 	 * stats don't get updated twice.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 9, 0))
+-	return __skb_dequeue(&sch->q);
+-#else
+ 	return __qdisc_dequeue_head(&sch->q);
+-#endif
+ };
+ 
+ /*
+@@ -1047,35 +1026,15 @@ struct Qdisc *nss_qdisc_replace(struct Q
+ 	 * The qdisc_replace() API is originally introduced in kernel version 4.6,
+ 	 * however this has been back ported to the 4.4. kernal used in QSDK.
+ 	 */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0))
+ 	return qdisc_replace(sch, new, pold);
+-#else
+-	struct Qdisc *old;
+-
+-	sch_tree_lock(sch);
+-	old = *pold;
+-	*pold = new;
+-	if (old != NULL) {
+-		qdisc_tree_decrease_qlen(old, old->q.qlen);
+-		qdisc_reset(old);
+-	}
+-	sch_tree_unlock(sch);
+-
+-	return old;
+-#endif
+ }
+ 
+ /*
+  * nss_qdisc_qopt_get()
+  *	Extracts qopt from opt.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-void *nss_qdisc_qopt_get(struct nlattr *opt, struct nla_policy *policy,
+-				struct nlattr *tb[], uint32_t tca_max, uint32_t tca_params)
+-#else
+ void *nss_qdisc_qopt_get(struct nlattr *opt, struct nla_policy *policy,
+ 				struct nlattr *tb[], uint32_t tca_max, uint32_t tca_params, struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	int err;
+ 
+@@ -1083,11 +1042,7 @@ void *nss_qdisc_qopt_get(struct nlattr *
+ 		return NULL;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	err = nla_parse_nested(tb, tca_max, opt, policy);
+-#else
+ 	err = nla_parse_nested_deprecated(tb, tca_max, opt, policy, extack);
+-#endif
+ 
+ 	if (err < 0)
+ 		return NULL;
+@@ -1131,30 +1086,6 @@ struct sk_buff *nss_qdisc_peek(struct Qd
+ 	return skb;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-/*
+- * nss_qdisc_drop()
+- *	Called to drop the packet at the head of queue
+- */
+-unsigned int nss_qdisc_drop(struct Qdisc *sch)
+-{
+-	struct nss_qdisc *nq = qdisc_priv(sch);
+-	unsigned int ret;
+-
+-	if (!nq->is_virtual) {
+-		ret = __qdisc_queue_drop_head(sch, &sch->q);
+-	} else {
+-		spin_lock_bh(&nq->bounce_protection_lock);
+-		/*
+-		 * This function is safe to call within locks
+-		 */
+-		ret = __qdisc_queue_drop_head(sch, &sch->q);
+-		spin_unlock_bh(&nq->bounce_protection_lock);
+-	}
+-
+-	return ret;
+-}
+-#endif
+ 
+ /*
+  * nss_qdisc_reset()
+@@ -1209,11 +1140,7 @@ static bool nss_qdisc_iterate_fl(struct
+ 		return 0;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	status = tc_classify(skb, tcf, &res, false);
+-#else
+-	status = tcf_classify(skb, tcf, &res, false);
+-#endif
++	status = tcf_classify(skb, NULL, tcf, &res, false);
+ 	if ((status == TC_ACT_STOLEN) || (status == TC_ACT_QUEUED)) {
+ 		return 1;
+ 	}
+@@ -1235,11 +1162,7 @@ static bool nss_qdisc_iterate_fl(struct
+  * nss_qdisc_enqueue()
+  *	Generic enqueue call for enqueuing packets into NSS for shaping
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-extern int nss_qdisc_enqueue(struct sk_buff *skb, struct Qdisc *sch)
+-#else
+ extern int nss_qdisc_enqueue(struct sk_buff *skb, struct Qdisc *sch, struct sk_buff **to_free)
+-#endif
+ {
+ 	struct nss_qdisc *nq = qdisc_priv(sch);
+ 	nss_tx_status_t status;
+@@ -1299,18 +1222,10 @@ extern int nss_qdisc_enqueue(struct sk_b
+ 	/*
+ 	 * Skip the shaping of already shaped packets.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	if (skb->tc_verd & TC_NCLS_NSS) {
+-		skb->tc_verd = CLR_TC_NCLS_NSS(skb->tc_verd);
+-		nss_qdisc_mark_and_schedule(nq->qdisc, skb);
+-		return NET_XMIT_SUCCESS;
+-	}
+-#else
+ 	if (skb_skip_tc_classify_offload(skb)) {
+ 		nss_qdisc_mark_and_schedule(nq->qdisc, skb);
+ 		return NET_XMIT_SUCCESS;
+ 	}
+-#endif
+ 
+ 	if (!nq->is_virtual) {
+ 		/*
+@@ -1359,15 +1274,7 @@ enqueue_drop:
+ 	 * We were unable to transmit the packet for bridge shaping.
+ 	 * We therefore drop it.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	kfree_skb(skb);
+-
+-	spin_lock_bh(&nq->lock);
+-	sch->qstats.drops++;
+-	spin_unlock_bh(&nq->lock);
+-#else
+ 	qdisc_drop(skb, sch, to_free);
+-#endif
+ 	return NET_XMIT_DROP;
+ }
+ 
+@@ -1929,11 +1836,7 @@ void nss_qdisc_destroy(struct nss_qdisc
+ 	/*
+ 	 * Destroy any attached filter over qdisc.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	tcf_destroy_chain(&nq->filter_list);
+-#else
+ 	tcf_block_put(nq->block);
+-#endif
+ 
+ #if defined(NSS_QDISC_PPE_SUPPORT)
+ 	if (nq->mode == NSS_QDISC_MODE_PPE) {
+@@ -2026,15 +1929,10 @@ void nss_qdisc_destroy(struct nss_qdisc
+  *	Initializes a shaper in NSS, based on the position of this qdisc (child or root)
+  *	and if its a normal interface or a bridge interface.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-int __nss_qdisc_init(struct Qdisc *sch, struct nss_qdisc *nq, nss_shaper_node_type_t type, uint32_t classid, uint32_t accel_mode)
+-{
+-#else
+ int __nss_qdisc_init(struct Qdisc *sch, struct nss_qdisc *nq, nss_shaper_node_type_t type, uint32_t classid, uint32_t accel_mode,
+ 		struct netlink_ext_ack *extack)
+ {
+ 	int err;
+-#endif
+ 	struct Qdisc *root;
+ 	u32 parent;
+ 	nss_tx_status_t rc;
+@@ -2105,9 +2003,6 @@ int __nss_qdisc_init(struct Qdisc *sch,
+ 	/*
+ 	 * Initialize filter list.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	RCU_INIT_POINTER(nq->filter_list, NULL);
+-#endif
+ 	/*
+ 	 * If we are a class, then classid is used as the qos tag.
+ 	 * Else the qdisc handle will be used as the qos tag.
+@@ -2145,7 +2040,6 @@ int __nss_qdisc_init(struct Qdisc *sch,
+ 	 */
+ 	dev = qdisc_dev(sch);
+ 
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
+ 	/*
+ 	 * Currently filter addition is only supported over IFB interfaces.
+ 	 * Therefore, perform tcf block allocation (which is used for storing
+@@ -2161,7 +2055,6 @@ int __nss_qdisc_init(struct Qdisc *sch,
+ 		RCU_INIT_POINTER(nq->filter_list, NULL);
+ 		nq->block = NULL;
+ 	}
+-#endif
+ 
+ 	nss_qdisc_info("Qdisc %px (type %d) init dev: %px\n", nq->qdisc, nq->type, dev);
+ 
+@@ -2188,7 +2081,7 @@ int __nss_qdisc_init(struct Qdisc *sch,
+ 	 * This is to prevent mixing NSS and PPE qdisc with linux qdisc.
+ 	 */
+ 	if ((parent != TC_H_ROOT) && (root->ops->owner != THIS_MODULE)) {
+-		nss_qdisc_warning("NSS qdisc %px (type %d) used along with non-nss qdiscs,"
++		nss_qdisc_info("NSS qdisc %px (type %d) used along with non-nss qdiscs,"
+ 			" or the interface is currently down", nq->qdisc, nq->type);
+ 	}
+ 
+@@ -2593,11 +2486,7 @@ init_fail:
+ int nss_qdisc_init(struct Qdisc *sch, struct nss_qdisc *nq, nss_shaper_node_type_t type, uint32_t classid,
+ 		uint32_t accel_mode, void *extack)
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	return __nss_qdisc_init(sch, nq, type, classid, accel_mode);
+-#else
+ 	return __nss_qdisc_init(sch, nq, type, classid, accel_mode, extack);
+-#endif
+ }
+ 
+ /*
+@@ -2605,15 +2494,9 @@ int nss_qdisc_init(struct Qdisc *sch, st
+  *  Wrapper around gnet_stats_copy_basic()
+  */
+ int nss_qdisc_gnet_stats_copy_basic(struct Qdisc *sch, struct gnet_dump *d,
+-				struct gnet_stats_basic_packed *b)
++				struct gnet_stats_basic_sync *b)
+ {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(3, 18, 0))
+-	return gnet_stats_copy_basic(d, b);
+-#elif (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	return gnet_stats_copy_basic(d, NULL, b);
+-#else
+-	return gnet_stats_copy_basic(qdisc_root_sleeping_running(sch), d, NULL, b);
+-#endif
++	return gnet_stats_copy_basic(d, NULL, b, true);
+ }
+ 
+ /*
+@@ -2623,11 +2506,7 @@ int nss_qdisc_gnet_stats_copy_basic(stru
+ int nss_qdisc_gnet_stats_copy_queue(struct gnet_dump *d,
+ 					struct gnet_stats_queue *q)
+ {
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(3, 18, 0))
+-	return gnet_stats_copy_queue(d, q);
+-#else
+ 	return gnet_stats_copy_queue(d, NULL, q, q->qlen);
+-#endif
+ }
+ 
+ /*
+@@ -2708,35 +2587,6 @@ static int nss_qdisc_if_event_cb(struct
+ 	return NOTIFY_DONE;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-/*
+- * nss_qdisc_tcf_chain()
+- *	Return the filter list of qdisc.
+- */
+-struct tcf_proto __rcu **nss_qdisc_tcf_chain(struct Qdisc *sch, unsigned long arg)
+-{
+-	struct nss_qdisc *nq = qdisc_priv(sch);
+-
+-	/*
+-	 * Currently filter addition is only supported over IFB interfaces.
+-	 */
+-	if (!nss_igs_verify_if_num(nq->nss_interface_number)) {
+-		nss_qdisc_error("%d is not an ifb interface. Filter addition is only"
+-				" supported for IFB interfaces.", nq->nss_interface_number);
+-		return NULL;
+-	}
+-
+-	/*
+-	 * Currently, support is available only for tc filter iterations
+-	 * at root qdisc.
+-	 */
+-	if (nq->is_root) {
+-		return &(nq->filter_list);
+-	}
+-
+-	return NULL;
+-}
+-#else
+ /*
+  * nss_qdisc_tcf_block()
+  *	Return the block containing chain of qdisc.
+@@ -2755,7 +2605,6 @@ struct tcf_block *nss_qdisc_tcf_block(st
+ 
+ 	return NULL;
+ }
+-#endif
+ 
+ /*
+  * nss_qdisc_tcf_bind()
+--- a/nss_qdisc/nss_qdisc.h
++++ b/nss_qdisc/nss_qdisc.h
+@@ -25,12 +25,9 @@
+ #include <net/netfilter/nf_conntrack.h>
+ #include <linux/if_bridge.h>
+ #include <linux/list.h>
+-#include <linux/version.h>
+ #include <br_private.h>
+ #include <nss_api_if.h>
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
+ #include <linux/netlink.h>
+-#endif
+ 
+ #if defined(NSS_QDISC_PPE_SUPPORT)
+ #include "nss_ppe.h"
+@@ -120,17 +117,10 @@
+ 
+ #define NSS_QDISC_BRIDGE_PORT_MAX 100
+ 
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(3,8,0))
+-#define nss_qdisc_hlist_for_each_entry(tpos, pos, head, member) hlist_for_each_entry(tpos, pos, head, member)
+-#define nss_qdisc_hlist_for_each_entry_safe(tpos, pos, n, head, member) hlist_for_each_entry_safe(tpos, pos, n, head, member)
+-#define nss_qdisc_get_dev_master(dev) (dev->master)
+-#define nss_qdisc_get_dev(ptr) (struct net_device *)ptr
+-#else
+ #define nss_qdisc_hlist_for_each_entry(tpos, pos, head, member) hlist_for_each_entry(tpos, head, member)
+ #define nss_qdisc_hlist_for_each_entry_safe(tpos, pos, n, head, member) hlist_for_each_entry_safe(tpos, n, head, member)
+ #define nss_qdisc_get_dev_master(dev) netdev_master_upper_dev_get(dev)
+ #define nss_qdisc_get_dev(ptr) netdev_notifier_info_to_dev(ptr)
+-#endif
+ 
+ /*
+  * Mode of Qdisc/class
+@@ -217,13 +207,9 @@ struct nss_qdisc {
+ 						/* Shaper configure callback for reading shaper specific
+ 						 * responses (e.g. memory size).
+ 						 */
+-	struct gnet_stats_basic_packed bstats;	/* Basic class statistics */
++	struct gnet_stats_basic_sync bstats;	/* Basic class statistics */
+ 	struct gnet_stats_queue qstats;		/* Qstats for use by classes */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0))
+-	atomic_t refcnt;			/* Reference count for class use */
+-#else
+ 	refcount_t refcnt;			/* Reference count for class use */
+-#endif
+ 	struct timer_list stats_get_timer;	/* Timer used to poll for stats */
+ 	atomic_t pending_stat_requests;		/* Number of pending stats responses */
+ 	struct nss_qdisc_stats_wq *stats_wq;	/* Stats info and state work object */
+@@ -240,9 +226,7 @@ struct nss_qdisc {
+ 						 */
+ #endif
+ 	struct tcf_proto __rcu *filter_list;	/* Filter list */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
+ 	struct tcf_block *block;
+-#endif
+ };
+ 
+ /*
+@@ -285,11 +269,7 @@ enum nss_qdisc_hybrid_mode {
+  */
+ static inline struct nlattr * nss_qdisc_nla_nest_start(struct sk_buff *skb, int attrtype)
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	return nla_nest_start(skb, TCA_OPTIONS);
+-#else
+ 	return nla_nest_start_noflag(skb, TCA_OPTIONS);
+-#endif
+ }
+ 
+ /*
+@@ -298,11 +278,7 @@ static inline struct nlattr * nss_qdisc_
+  */
+ static inline void nss_qdisc_atomic_sub(struct nss_qdisc *nq)
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0))
+-	atomic_sub(1, &nq->refcnt);
+-#else
+ 	atomic_sub(1, &nq->refcnt.refs);
+-#endif
+ }
+ 
+ /*
+@@ -311,11 +287,7 @@ static inline void nss_qdisc_atomic_sub(
+  */
+ static inline int nss_qdisc_atomic_sub_return(struct nss_qdisc *nq)
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0))
+-	return atomic_sub_return(1, &nq->refcnt);
+-#else
+ 	return atomic_sub_return(1, &nq->refcnt.refs);
+-#endif
+ }
+ 
+ /*
+@@ -324,11 +296,7 @@ static inline int nss_qdisc_atomic_sub_r
+  */
+ static inline void nss_qdisc_atomic_set(struct nss_qdisc *nq)
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0))
+-	atomic_set(&nq->refcnt, 1);
+-#else
+ 	refcount_set(&nq->refcnt, 1);
+-#endif
+ }
+ 
+ /*
+@@ -337,24 +305,15 @@ static inline void nss_qdisc_atomic_set(
+  */
+ static inline void nss_qdisc_put(struct Qdisc *sch)
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0))
+-	qdisc_destroy(sch);
+-#else
+ 	qdisc_put(sch);
+-#endif
+ }
+ 
+ /*
+  * nss_qdisc_qopt_get()
+  *	Extracts qopt from opt.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-extern void *nss_qdisc_qopt_get(struct nlattr *opt, struct nla_policy *policy,
+-				struct nlattr *tb[], uint32_t tca_max, uint32_t tca_params);
+-#else
+ extern void *nss_qdisc_qopt_get(struct nlattr *opt, struct nla_policy *policy,
+ 				struct nlattr *tb[], uint32_t tca_max, uint32_t tca_params, struct netlink_ext_ack *extack);
+-#endif
+ 
+ /*
+  * nss_qdisc_mode_get()
+@@ -368,13 +327,6 @@ extern uint8_t nss_qdisc_accel_mode_get(
+  */
+ extern struct sk_buff *nss_qdisc_peek(struct Qdisc *sch);
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-/*
+- * nss_qdisc_drop()
+- *	Called to drop the packet at the head of queue
+- */
+-extern unsigned int nss_qdisc_drop(struct Qdisc *sch);
+-#endif
+ 
+ /*
+  * nss_qdisc_reset()
+@@ -386,11 +338,7 @@ extern void nss_qdisc_reset(struct Qdisc
+  * nss_qdisc_enqueue()
+  *	Generic enqueue call for enqueuing packets into NSS for shaping
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-extern int nss_qdisc_enqueue(struct sk_buff *skb, struct Qdisc *sch);
+-#else
+ extern int nss_qdisc_enqueue(struct sk_buff *skb, struct Qdisc *sch, struct sk_buff **to_free);
+-#endif
+ 
+ /*
+  * nss_qdisc_dequeue()
+@@ -464,7 +412,7 @@ extern int nss_qdisc_init(struct Qdisc *
+  *  Wrapper around gnet_stats_copy_basic()
+  */
+ extern int nss_qdisc_gnet_stats_copy_basic(struct Qdisc *sch,
+-				struct gnet_dump *d, struct gnet_stats_basic_packed *b);
++				struct gnet_dump *d, struct gnet_stats_basic_sync *b);
+ 
+ /*
+  * nss_qdisc_gnet_stats_copy_queue()
+@@ -480,19 +428,11 @@ extern int nss_qdisc_gnet_stats_copy_que
+ extern struct Qdisc *nss_qdisc_replace(struct Qdisc *sch, struct Qdisc *new,
+ 					struct Qdisc **pold);
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-/*
+- * nss_qdisc_tcf_chain()
+- *	Return the filter list of qdisc.
+- */
+-extern struct tcf_proto __rcu **nss_qdisc_tcf_chain(struct Qdisc *sch, unsigned long arg);
+-#else
+ /*
+  * nss_qdisc_tcf_block()
+  *	Return the block containing chain of qdisc.
+  */
+ extern struct tcf_block *nss_qdisc_tcf_block(struct Qdisc *sch, unsigned long cl, struct netlink_ext_ack *extack);
+-#endif
+ 
+ /*
+  * nss_qdisc_tcf_bind()
+--- a/nss_qdisc/nss_qdisc_stats.c
++++ b/nss_qdisc/nss_qdisc_stats.c
+@@ -73,59 +73,14 @@ static inline void nss_qdisc_stats_queue
+  * nss_qdisc_stats_sync_restart()
+  *	Invoked by timer to begin a new stats fetch
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+-static void nss_qdisc_stats_sync_restart(unsigned long int data)
+-#else
+ static void nss_qdisc_stats_sync_restart(struct timer_list *tm)
+-#endif
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+-	struct nss_qdisc *nq = (struct nss_qdisc *)data;
+-#else
+-	struct nss_qdisc_stats_wq *nqsw = from_timer(nqsw, tm, stats_get_timer);
++	struct nss_qdisc_stats_wq *nqsw = timer_container_of(nqsw, tm, stats_get_timer);
+ 	struct nss_qdisc *nq = nqsw->nq;
+-#endif
+ 
+ 	nss_qdisc_stats_queue_delayed_work(nq);
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-/*
+- * nss_qdisc_stats_put_class_nq()
+- *	Call to put class, followed by get class
+- */
+-static inline void nss_qdisc_stats_put_class_nq(struct nss_qdisc *nq)
+-{
+-	const struct Qdisc_class_ops *clops;
+-	clops = nq->qdisc->ops->cl_ops;
+-	clops->put(nq->qdisc, (unsigned long)nq);
+-}
+-
+-/*
+- * nss_qdisc_stats_get_class_nq()
+- *	Get struct nss_qdisc of corresponding class
+- */
+-static inline struct nss_qdisc *nss_qdisc_stats_get_class_nq(struct nss_qdisc *nqp,
+-		uint32_t classid)
+-{
+-
+-	const struct Qdisc_class_ops *clops;
+-	struct nss_qdisc *nq;
+-	clops = nqp->qdisc->ops->cl_ops;
+-	if (!clops) {
+-		nss_qdisc_warning("Classid %u for unsupported qdisc %p\n", classid, nqp);
+-		return NULL;
+-	}
+-
+-	nq = (struct nss_qdisc *)clops->get(nqp->qdisc, classid);
+-	if (!nq) {
+-		nss_qdisc_info("Class %u not found for qdisc %p\n", classid, nqp);
+-		return NULL;
+-	}
+-
+-	return nq;
+-}
+-#else
+ /*
+  * nss_qdisc_stats_find_class_nq()
+  *	Get struct nss_qdisc of corresponding class
+@@ -150,7 +105,6 @@ static inline struct nss_qdisc *nss_qdis
+ 
+ 	return nq;
+ }
+-#endif
+ 
+ /*
+  * nss_qdisc_stats_process_node_stats()
+@@ -161,14 +115,10 @@ static void nss_qdisc_stats_process_node
+ {
+ 	struct Qdisc *qdisc;
+ 	struct nss_qdisc *nq;
+-	struct gnet_stats_basic_packed *bstats;
++	struct gnet_stats_basic_sync *bstats;
+ 	struct gnet_stats_queue *qstats;
+ 	uint32_t qos_tag = response->qos_tag;
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0))
+-	atomic_t *refcnt;
+-#else
+ 	refcount_t *refcnt;
+-#endif
+ 	/*
+ 	 * Find the Qdisc for this qos_tag from the hash table
+ 	 */
+@@ -180,18 +130,12 @@ static void nss_qdisc_stats_process_node
+ 
+ 	qdisc = nq->qdisc;
+ 	if (TC_H_MIN(qos_tag)) {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-		nq = nss_qdisc_stats_get_class_nq(nq, qos_tag);
+-#else
+ 		spinlock_t *root_lock = qdisc_lock(nqr->qdisc);
+ 		spin_lock(root_lock);
+ 		nq = nss_qdisc_stats_find_class_nq(nq, qos_tag);
+-#endif
+ 		if (!nq) {
+ 			nss_qdisc_info("Qdisc %p (qos_tag %x): class node not found - \n", nq, qos_tag);
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0))
+ 			spin_unlock(root_lock);
+-#endif
+ 			return;
+ 		}
+ 	}
+@@ -215,8 +159,8 @@ static void nss_qdisc_stats_process_node
+ 	 * Update qdisc->bstats
+ 	 */
+ 	spin_lock_bh(&nq->lock);
+-	bstats->bytes += (__u64)response->sn_stats.delta.dequeued_bytes;
+-	bstats->packets += response->sn_stats.delta.dequeued_packets;
++	u64_stats_add(&bstats->bytes, (__u64)response->sn_stats.delta.dequeued_bytes);
++	u64_stats_add(&bstats->packets, response->sn_stats.delta.dequeued_packets);
+ 
+ 	/*
+ 	 * Update qdisc->qstats
+@@ -244,12 +188,8 @@ static void nss_qdisc_stats_process_node
+ 	}
+ 
+ 	if (TC_H_MIN(qos_tag)) {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-		nss_qdisc_stats_put_class_nq(nq);
+-#else
+ 		spinlock_t *root_lock = qdisc_lock(nqr->qdisc);
+ 		spin_unlock(root_lock);
+-#endif
+ 	}
+ }
+ 
+@@ -490,7 +430,7 @@ void nss_qdisc_stats_sync_many_exit(stru
+ 	 * We will have to wait until we have received the pending response.
+ 	 */
+ cleanup:
+-	if (del_timer(&nqsw->stats_get_timer) > 0) {
++	if (timer_delete(&nqsw->stats_get_timer) > 0) {
+ 		/*
+ 		 * The timer was still active (counting down) when it was deleted.
+ 		 * Therefore we are sure that there are no pending stats request
+@@ -573,13 +513,7 @@ bool nss_qdisc_stats_sync_many_init(stru
+ 	/*
+ 	 * Initialize the timer that restarts the polling loop
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+-	init_timer(&nqsw->stats_get_timer);
+-	nqsw->stats_get_timer.function = nss_qdisc_stats_sync_restart;
+-	nqsw->stats_get_timer.data = (unsigned long)nq;
+-#else
+ 	timer_setup(&nqsw->stats_get_timer, nss_qdisc_stats_sync_restart, 0);
+-#endif
+ 
+ 	nss_qdisc_info("Qdisc %px stats sync message initialized for nq:%p", nq->qdisc, nq);
+ 	return true;
+--- a/nss_qdisc/nss_tbl.c
++++ b/nss_qdisc/nss_tbl.c
+@@ -29,18 +29,10 @@ static struct nla_policy nss_tbl_policy[
+ 	[TCA_NSSTBL_PARMS] = { .len = sizeof(struct tc_nsstbl_qopt) },
+ };
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-static int nss_tbl_enqueue(struct sk_buff *skb, struct Qdisc *sch)
+-#else
+ static int nss_tbl_enqueue(struct sk_buff *skb, struct Qdisc *sch,
+ 				struct sk_buff **to_free)
+-#endif
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	return nss_qdisc_enqueue(skb, sch);
+-#else
+ 	return nss_qdisc_enqueue(skb, sch, to_free);
+-#endif
+ }
+ 
+ static struct sk_buff *nss_tbl_dequeue(struct Qdisc *sch)
+@@ -48,12 +40,6 @@ static struct sk_buff *nss_tbl_dequeue(s
+ 	return nss_qdisc_dequeue(sch);
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-static unsigned int nss_tbl_drop(struct Qdisc *sch)
+-{
+-	return nss_qdisc_drop(sch);
+-}
+-#endif
+ 
+ static struct sk_buff *nss_tbl_peek(struct Qdisc *sch)
+ {
+@@ -93,11 +79,7 @@ static void nss_tbl_destroy(struct Qdisc
+ }
+ 
+ #if defined(NSS_QDISC_PPE_SUPPORT)
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_tbl_ppe_change(struct Qdisc *sch, struct nlattr *opt)
+-#else
+ static int nss_tbl_ppe_change(struct Qdisc *sch, struct nlattr *opt, struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_tbl_sched_data *q = qdisc_priv(sch);
+ 	struct nss_qdisc *nq = &q->nq;
+@@ -133,11 +115,7 @@ fail:
+ 	/*
+ 	 * PPE qdisc config failed, try to initialize in NSS.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nss_ppe_fallback_to_nss(nq, opt)) {
+-#else
+ 	if (nss_ppe_fallback_to_nss(nq, opt, extack)) {
+-#endif
+ 	nss_qdisc_warning("nss_tbl %x fallback to nss failed\n", sch->handle);
+ 		return -EINVAL;
+ 	}
+@@ -146,12 +124,8 @@ fail:
+ }
+ #endif
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_tbl_change(struct Qdisc *sch, struct nlattr *opt)
+-#else
+ static int nss_tbl_change(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_tbl_sched_data *q = qdisc_priv(sch);
+ 	struct nlattr *tb[TCA_NSSTBL_MAX + 1];
+@@ -163,11 +137,7 @@ static int nss_tbl_change(struct Qdisc *
+ 		return -EINVAL;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_tbl_policy, tb, TCA_NSSTBL_MAX, TCA_NSSTBL_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_tbl_policy, tb, TCA_NSSTBL_MAX, TCA_NSSTBL_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		return -EINVAL;
+ 	}
+@@ -202,11 +172,7 @@ static int nss_tbl_change(struct Qdisc *
+ 
+ #if defined(NSS_QDISC_PPE_SUPPORT)
+ 	if (q->nq.mode == NSS_QDISC_MODE_PPE) {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-		if (nss_tbl_ppe_change(sch, opt) < 0) {
+-#else
+ 		if (nss_tbl_ppe_change(sch, opt, extack) < 0) {
+-#endif
+ 			nss_qdisc_warning("nss_tbl %x SSDK scheduler config failed\n", sch->handle);
+ 			return -EINVAL;
+ 		}
+@@ -244,15 +210,9 @@ static int nss_tbl_change(struct Qdisc *
+ 	return 0;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_tbl_init(struct Qdisc *sch, struct nlattr *opt)
+-{
+-	struct netlink_ext_ack *extack = NULL;
+-#else
+ static int nss_tbl_init(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+ {
+-#endif
+ 	struct nss_tbl_sched_data *q = qdisc_priv(sch);
+ 	struct nlattr *tb[TCA_NSSTBL_MAX + 1];
+ 	struct tc_nsstbl_qopt *qopt;
+@@ -263,11 +223,7 @@ static int nss_tbl_init(struct Qdisc *sc
+ 
+ 	q->qdisc = &noop_qdisc;
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_tbl_policy, tb, TCA_NSSTBL_MAX, TCA_NSSTBL_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_tbl_policy, tb, TCA_NSSTBL_MAX, TCA_NSSTBL_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		return -EINVAL;
+ 	}
+@@ -277,11 +233,7 @@ static int nss_tbl_init(struct Qdisc *sc
+ 		return -EINVAL;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nss_tbl_change(sch, opt) < 0) {
+-#else
+ 	if (nss_tbl_change(sch, opt, extack) < 0) {
+-#endif
+ 		nss_qdisc_info("Failed to configure tbl\n");
+ 		nss_qdisc_destroy(&q->nq);
+ 		return -EINVAL;
+@@ -328,13 +280,8 @@ static int nss_tbl_dump_class(struct Qdi
+ 	return 0;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_tbl_graft(struct Qdisc *sch, unsigned long arg, struct Qdisc *new,
+-			struct Qdisc **old)
+-#else
+ static int nss_tbl_graft(struct Qdisc *sch, unsigned long arg, struct Qdisc *new,
+ 			struct Qdisc **old, struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_tbl_sched_data *q = qdisc_priv(sch);
+ 	struct nss_qdisc *nq_new = (struct nss_qdisc *)qdisc_priv(new);
+@@ -350,7 +297,7 @@ static int nss_tbl_graft(struct Qdisc *s
+ 
+ 	nss_qdisc_info("Grafting old: %px with new: %px\n", *old, new);
+ 	if (*old != &noop_qdisc) {
+-		struct nss_qdisc *nq_old = (struct nss_qdisc *)qdisc_priv(*old);
++		struct nss_qdisc *nq_old = (struct nss_qdisc *)qdisc_priv(((struct Qdisc *)(*old)));
+ 		nss_qdisc_info("Detaching old: %px\n", *old);
+ 		nim_detach.msg.shaper_configure.config.msg.shaper_node_config.qos_tag = q->nq.qos_tag;
+ 		if (nss_qdisc_node_detach(&q->nq, nq_old, &nim_detach,
+@@ -386,21 +333,10 @@ static struct Qdisc *nss_tbl_leaf(struct
+ 	return q->qdisc;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-static unsigned long nss_tbl_get(struct Qdisc *sch, u32 classid)
+-{
+-	return 1;
+-}
+-
+-static void nss_tbl_put(struct Qdisc *sch, unsigned long arg)
+-{
+-}
+-#else
+ static unsigned long nss_tbl_search(struct Qdisc *sch, u32 classid)
+ {
+ 	return 1;
+ }
+-#endif
+ 
+ static void nss_tbl_walk(struct Qdisc *sch, struct qdisc_walker *walker)
+ {
+@@ -418,17 +354,8 @@ static void nss_tbl_walk(struct Qdisc *s
+ const struct Qdisc_class_ops nss_tbl_class_ops = {
+ 	.graft		=	nss_tbl_graft,
+ 	.leaf		=	nss_tbl_leaf,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-	.get		=	nss_tbl_get,
+-	.put		=	nss_tbl_put,
+-#else
+ 	.find       =   nss_tbl_search,
+-#endif
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	.tcf_chain	=	nss_qdisc_tcf_chain,
+-#else
+ 	.tcf_block	=	nss_qdisc_tcf_block,
+-#endif
+ 	.bind_tcf	=	nss_qdisc_tcf_bind,
+ 	.unbind_tcf	=	nss_qdisc_tcf_unbind,
+ 	.walk		=	nss_tbl_walk,
+@@ -443,9 +370,6 @@ struct Qdisc_ops nss_tbl_qdisc_ops __rea
+ 	.enqueue	=	nss_tbl_enqueue,
+ 	.dequeue	=	nss_tbl_dequeue,
+ 	.peek		=	nss_tbl_peek,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	.drop		=	nss_tbl_drop,
+-#endif
+ 	.init		=	nss_tbl_init,
+ 	.reset		=	nss_tbl_reset,
+ 	.destroy	=	nss_tbl_destroy,
+--- a/nss_qdisc/nss_wred.c
++++ b/nss_qdisc/nss_wred.c
+@@ -55,18 +55,10 @@ static struct nla_policy nss_wred_policy
+  * nss_wred_enqueue()
+  *	Enqueue API for nsswred qdisc
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-static int nss_wred_enqueue(struct sk_buff *skb, struct Qdisc *sch)
+-#else
+ static int nss_wred_enqueue(struct sk_buff *skb, struct Qdisc *sch,
+ 				struct sk_buff **to_free)
+-#endif
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	return nss_qdisc_enqueue(skb, sch);
+-#else
+ 	return nss_qdisc_enqueue(skb, sch, to_free);
+-#endif
+ }
+ 
+ /*
+@@ -78,17 +70,6 @@ static struct sk_buff *nss_wred_dequeue(
+ 	return nss_qdisc_dequeue(sch);
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-/*
+- * nss_wred_drop()
+- *	Drops a packet from HLOS queue.
+- */
+-static unsigned int nss_wred_drop(struct Qdisc *sch)
+-{
+-	nss_qdisc_info("nsswred dropping");
+-	return nss_qdisc_drop(sch);
+-}
+-#endif
+ 
+ /*
+  * nss_wred_reset()
+@@ -117,11 +98,7 @@ static void nss_wred_destroy(struct Qdis
+  * nss_wred_ppe_change()
+  *	Function call to configure the nssred parameters for ppe qdisc.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_wred_ppe_change(struct Qdisc *sch, struct nlattr *opt)
+-#else
+ static int nss_wred_ppe_change(struct Qdisc *sch, struct nlattr *opt, struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_wred_sched_data *q = qdisc_priv(sch);
+ 	struct nss_qdisc *nq = &q->nq;
+@@ -169,11 +146,7 @@ fail:
+ 	/*
+ 	 * Fallback to nss qdisc if PPE Qdisc configuration failed at init time.
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nss_ppe_fallback_to_nss(&q->nq, opt) < 0) {
+-#else
+ 	if (nss_ppe_fallback_to_nss(&q->nq, opt, extack) < 0) {
+-#endif
+ 	nss_qdisc_warning("nss_wred %x fallback to nss failed\n", sch->handle);
+ 		return -EINVAL;
+ 	}
+@@ -185,12 +158,8 @@ fail:
+  * nss_wred_change()
+  *	Function call to configure the nsswred parameters
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_wred_change(struct Qdisc *sch, struct nlattr *opt)
+-#else
+ static int nss_wred_change(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_wred_sched_data *q = qdisc_priv(sch);
+ 	struct nlattr *tb[TCA_NSSWRED_MAX + 1];
+@@ -201,11 +170,7 @@ static int nss_wred_change(struct Qdisc
+ 		return -EINVAL;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_wred_policy, tb, TCA_NSSWRED_MAX, TCA_NSSWRED_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_wred_policy, tb, TCA_NSSWRED_MAX, TCA_NSSWRED_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		return -EINVAL;
+ 	}
+@@ -277,11 +242,7 @@ static int nss_wred_change(struct Qdisc
+ 
+ #if defined(NSS_QDISC_PPE_SUPPORT)
+ 	if (q->nq.mode == NSS_QDISC_MODE_PPE) {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-		if (nss_wred_ppe_change(sch, opt) < 0) {
+-#else
+ 		if (nss_wred_ppe_change(sch, opt, extack) < 0) {
+-#endif
+ 			nss_qdisc_warning("nss_wred %px params validate and save failed\n", sch);
+ 			return -EINVAL;
+ 		}
+@@ -326,15 +287,9 @@ static int nss_wred_change(struct Qdisc
+  * nss_wred_init()
+  *	Init the nsswred qdisc
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_wred_init(struct Qdisc *sch, struct nlattr *opt)
+-{
+-	struct netlink_ext_ack *extack = NULL;
+-#else
+ static int nss_wred_init(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+ {
+-#endif
+ 	struct nss_qdisc *nq = qdisc_priv(sch);
+ 	struct nlattr *tb[TCA_NSSWRED_MAX + 1];
+ 	struct tc_nsswred_qopt *qopt;
+@@ -343,11 +298,7 @@ static int nss_wred_init(struct Qdisc *s
+ 		return -EINVAL;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_wred_policy, tb, TCA_NSSWRED_MAX, TCA_NSSWRED_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_wred_policy, tb, TCA_NSSWRED_MAX, TCA_NSSWRED_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		return -EINVAL;
+ 	}
+@@ -361,11 +312,7 @@ static int nss_wred_init(struct Qdisc *s
+ 	}
+ 
+ 	nss_qdisc_info("NSS wred initialized - handle %x parent %x\n", sch->handle, sch->parent);
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nss_wred_change(sch, opt) < 0) {
+-#else
+ 	if (nss_wred_change(sch, opt, extack) < 0) {
+-#endif
+ 		nss_qdisc_destroy(nq);
+ 		return -EINVAL;
+ 	}
+@@ -446,9 +393,6 @@ struct Qdisc_ops nss_red_qdisc_ops __rea
+ 	.enqueue	=	nss_wred_enqueue,
+ 	.dequeue	=	nss_wred_dequeue,
+ 	.peek		=	nss_wred_peek,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	.drop		=	nss_wred_drop,
+-#endif
+ 	.init		=	nss_wred_init,
+ 	.reset		=	nss_wred_reset,
+ 	.destroy	=	nss_wred_destroy,
+@@ -466,9 +410,6 @@ struct Qdisc_ops nss_wred_qdisc_ops __re
+ 	.enqueue	=	nss_wred_enqueue,
+ 	.dequeue	=	nss_wred_dequeue,
+ 	.peek		=	nss_wred_peek,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	.drop		=	nss_wred_drop,
+-#endif
+ 	.init		=	nss_wred_init,
+ 	.reset		=	nss_wred_reset,
+ 	.destroy	=	nss_wred_destroy,
+--- a/nss_qdisc/nss_wrr.c
++++ b/nss_qdisc/nss_wrr.c
+@@ -105,13 +105,8 @@ static void nss_wrr_destroy_class(struct
+  * nss_wrr_class_params_validate_and_save()
+  *	Validates and saves the class configuration parameters.
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_wrr_class_params_validate_and_save(struct Qdisc *sch, struct nlattr **tca,
+-					uint32_t *quantum)
+-#else
+ static int nss_wrr_class_params_validate_and_save(struct Qdisc *sch, struct nlattr **tca,
+ 					uint32_t *quantum, struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nlattr *tb[TCA_NSSWRR_MAX + 1];
+ 	struct nlattr *opt = tca[TCA_OPTIONS];
+@@ -128,11 +123,7 @@ static int nss_wrr_class_params_validate
+ 		return -EINVAL;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_wrr_policy, tb, TCA_NSSWRR_MAX, TCA_NSSWRR_CLASS_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_wrr_policy, tb, TCA_NSSWRR_MAX, TCA_NSSWRR_CLASS_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		return -EINVAL;
+ 	}
+@@ -227,16 +218,9 @@ static int nss_wrr_ppe_change_class(stru
+ }
+ #endif
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_wrr_change_class(struct Qdisc *sch, u32 classid, u32 parentid,
+-		  struct nlattr **tca, unsigned long *arg)
+-{
+-	struct netlink_ext_ack *extack = NULL;
+-#else
+ static int nss_wrr_change_class(struct Qdisc *sch, u32 classid, u32 parentid,
+ 		  struct nlattr **tca, unsigned long *arg, struct netlink_ext_ack *extack)
+ {
+-#endif
+ 	struct nss_wrr_sched_data *q = qdisc_priv(sch);
+ 	struct nss_wrr_class_data *cl = (struct nss_wrr_class_data *)*arg;
+ 	struct nss_if_msg nim_config;
+@@ -246,11 +230,7 @@ static int nss_wrr_change_class(struct Q
+ 
+ 	nss_qdisc_info("Changing nss_wrr class %u\n", classid);
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	if (nss_wrr_class_params_validate_and_save(sch, tca, &quantum) < 0) {
+-#else
+ 	if (nss_wrr_class_params_validate_and_save(sch, tca, &quantum, extack) < 0) {
+-#endif
+ 		nss_qdisc_warning("validation of configuration parameters for wrr class %x failed\n",
+ 					sch->handle);
+ 		return -EINVAL;
+@@ -400,7 +380,7 @@ failure:
+ 	return -EINVAL;
+ }
+ 
+-static int nss_wrr_delete_class(struct Qdisc *sch, unsigned long arg)
++static int nss_wrr_delete_class(struct Qdisc *sch, unsigned long arg, struct netlink_ext_ack *extack)
+ {
+ 	struct nss_wrr_sched_data *q = qdisc_priv(sch);
+ 	struct nss_wrr_class_data *cl = (struct nss_wrr_class_data *)arg;
+@@ -440,23 +420,12 @@ static int nss_wrr_delete_class(struct Q
+ 	 * explicitly as there is no put_class which would have called
+ 	 * nss_wrr_destroy_class when refcnt becomes zero.
+ 	 */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0))
+ 	nss_wrr_destroy_class(sch, cl);
+-#else
+-	if (!refcnt) {
+-		nss_qdisc_error("Reference count should not be zero for class %px\n", cl);
+-	}
+-#endif
+ 	return 0;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_wrr_graft_class(struct Qdisc *sch, unsigned long arg, struct Qdisc *new,
+-								 struct Qdisc **old)
+-#else
+ static int nss_wrr_graft_class(struct Qdisc *sch, unsigned long arg, struct Qdisc *new,
+ 								 struct Qdisc **old, struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nss_wrr_sched_data *q = qdisc_priv(sch);
+ 	struct nss_wrr_class_data *cl = (struct nss_wrr_class_data *)arg;
+@@ -484,7 +453,7 @@ static int nss_wrr_graft_class(struct Qd
+ 	 */
+ 	nss_qdisc_info("Grafting old: %px with new: %px\n", *old, new);
+ 	if (*old != &noop_qdisc) {
+-		struct nss_qdisc *nq_child = qdisc_priv(*old);
++		struct nss_qdisc *nq_child = qdisc_priv(((struct Qdisc *)(*old)));
+ 		nss_qdisc_info("Detaching old: %px\n", *old);
+ 		nim_detach.msg.shaper_configure.config.msg.shaper_node_config.qos_tag = cl->nq.qos_tag;
+ 		if (nss_qdisc_node_detach(&cl->nq, nq_child, &nim_detach,
+@@ -538,34 +507,6 @@ static void nss_wrr_qlen_notify(struct Q
+ 	 */
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-static unsigned long nss_wrr_get_class(struct Qdisc *sch, u32 classid)
+-{
+-	struct nss_wrr_class_data *cl = nss_wrr_find_class(classid, sch);
+-
+-	nss_qdisc_info("Get nss_wrr class %px - class match = %px\n", sch, cl);
+-
+-	if (cl != NULL) {
+-		atomic_add(1, &cl->nq.refcnt);
+-	}
+-
+-	return (unsigned long)cl;
+-}
+-
+-static void nss_wrr_put_class(struct Qdisc *sch, unsigned long arg)
+-{
+-	struct nss_wrr_class_data *cl = (struct nss_wrr_class_data *)arg;
+-	nss_qdisc_info("nss_wrr put class for %px\n", cl);
+-
+-	/*
+-	 * We are safe to destroy the qdisc if the reference count
+-	 * goes down to 0.
+-	 */
+-	if (nss_qdisc_atomic_sub_return(&cl->nq) == 0) {
+-		nss_wrr_destroy_class(sch, cl);
+-	}
+-}
+-#else
+ static unsigned long nss_wrr_search_class(struct Qdisc *sch, u32 classid)
+ {
+ 	struct nss_wrr_class_data *cl = nss_wrr_find_class(classid, sch);
+@@ -578,7 +519,6 @@ static unsigned long nss_wrr_search_clas
+ 
+ 	return (unsigned long)cl;
+ }
+-#endif
+ 
+ static int nss_wrr_dump_class(struct Qdisc *sch, unsigned long arg, struct sk_buff *skb,
+ 		struct tcmsg *tcm)
+@@ -649,15 +589,9 @@ static void nss_wrr_walk(struct Qdisc *s
+ 	}
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_wrr_init_qdisc(struct Qdisc *sch, struct nlattr *opt)
+-{
+-	struct netlink_ext_ack *extack = NULL;
+-#else
+ static int nss_wrr_init_qdisc(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+ {
+-#endif
+ 	struct nss_wrr_sched_data *q = qdisc_priv(sch);
+ 	struct nlattr *tb[TCA_NSSWRR_MAX + 1];
+ 	int err;
+@@ -677,11 +611,7 @@ static int nss_wrr_init_qdisc(struct Qdi
+ 	qdisc_class_hash_insert(&q->clhash, &q->root.cl_common);
+ 	qdisc_class_hash_grow(sch, &q->clhash);
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_wrr_policy, tb, TCA_NSSWRR_MAX, TCA_NSSWRR_QDISC_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_wrr_policy, tb, TCA_NSSWRR_MAX, TCA_NSSWRR_QDISC_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		nss_qdisc_warning("Failed to parse input");
+ 		return -EINVAL;
+@@ -725,12 +655,8 @@ static int nss_wrr_init_qdisc(struct Qdi
+ 	return 0;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-static int nss_wrr_change_qdisc(struct Qdisc *sch, struct nlattr *opt)
+-#else
+ static int nss_wrr_change_qdisc(struct Qdisc *sch, struct nlattr *opt,
+ 				struct netlink_ext_ack *extack)
+-#endif
+ {
+ 	struct nlattr *tb[TCA_NSSWRR_MAX + 1];
+ 	struct nss_wrr_sched_data *q;
+@@ -742,11 +668,7 @@ static int nss_wrr_change_qdisc(struct Q
+ 		return -EINVAL;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 16, 0))
+-	qopt = nss_qdisc_qopt_get(opt, nss_wrr_policy, tb, TCA_NSSWRR_MAX, TCA_NSSWRR_QDISC_PARMS);
+-#else
+ 	qopt = nss_qdisc_qopt_get(opt, nss_wrr_policy, tb, TCA_NSSWRR_MAX, TCA_NSSWRR_QDISC_PARMS, extack);
+-#endif
+ 	if (!qopt) {
+ 		return -EINVAL;
+ 	}
+@@ -875,18 +797,10 @@ nla_put_failure:
+ 	return -EMSGSIZE;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-static int nss_wrr_enqueue(struct sk_buff *skb, struct Qdisc *sch)
+-#else
+ static int nss_wrr_enqueue(struct sk_buff *skb, struct Qdisc *sch,
+ 				struct sk_buff **to_free)
+-#endif
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	return nss_qdisc_enqueue(skb, sch);
+-#else
+ 	return nss_qdisc_enqueue(skb, sch, to_free);
+-#endif
+ }
+ 
+ static struct sk_buff *nss_wrr_dequeue(struct Qdisc *sch)
+@@ -894,13 +808,6 @@ static struct sk_buff *nss_wrr_dequeue(s
+ 	return nss_qdisc_dequeue(sch);
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-static unsigned int nss_wrr_drop(struct Qdisc *sch)
+-{
+-	nss_qdisc_info("Nsswrr drop\n");
+-	return nss_qdisc_drop(sch);
+-}
+-#endif
+ 
+ const struct Qdisc_class_ops nss_wrr_class_ops = {
+ 	.change		= nss_wrr_change_class,
+@@ -908,17 +815,8 @@ const struct Qdisc_class_ops nss_wrr_cla
+ 	.graft		= nss_wrr_graft_class,
+ 	.leaf		= nss_wrr_leaf_class,
+ 	.qlen_notify	= nss_wrr_qlen_notify,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-	.get		= nss_wrr_get_class,
+-	.put		= nss_wrr_put_class,
+-#else
+ 	.find       = nss_wrr_search_class,
+-#endif
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	.tcf_chain	= nss_qdisc_tcf_chain,
+-#else
+ 	.tcf_block	= nss_qdisc_tcf_block,
+-#endif
+ 	.bind_tcf	= nss_qdisc_tcf_bind,
+ 	.unbind_tcf	= nss_qdisc_tcf_unbind,
+ 	.dump		= nss_wrr_dump_class,
+@@ -936,9 +834,6 @@ struct Qdisc_ops nss_wrr_qdisc_ops __rea
+ 	.enqueue	= nss_wrr_enqueue,
+ 	.dequeue	= nss_wrr_dequeue,
+ 	.peek		= qdisc_peek_dequeued,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	.drop		= nss_wrr_drop,
+-#endif
+ 	.cl_ops		= &nss_wrr_class_ops,
+ 	.priv_size	= sizeof(struct nss_wrr_sched_data),
+ 	.owner		= THIS_MODULE
+@@ -950,17 +845,8 @@ const struct Qdisc_class_ops nss_wfq_cla
+ 	.graft		= nss_wrr_graft_class,
+ 	.leaf		= nss_wrr_leaf_class,
+ 	.qlen_notify	= nss_wrr_qlen_notify,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
+-	.get		= nss_wrr_get_class,
+-	.put		= nss_wrr_put_class,
+-#else
+ 	.find       = nss_wrr_search_class,
+-#endif
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	.tcf_chain	= nss_qdisc_tcf_chain,
+-#else
+ 	.tcf_block	= nss_qdisc_tcf_block,
+-#endif
+ 	.bind_tcf	= nss_qdisc_tcf_bind,
+ 	.unbind_tcf	= nss_qdisc_tcf_unbind,
+ 	.dump		= nss_wrr_dump_class,
+@@ -978,9 +864,6 @@ struct Qdisc_ops nss_wfq_qdisc_ops __rea
+ 	.enqueue	= nss_wrr_enqueue,
+ 	.dequeue	= nss_wrr_dequeue,
+ 	.peek		= qdisc_peek_dequeued,
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0))
+-	.drop		= nss_wrr_drop,
+-#endif
+ 	.cl_ops		= &nss_wrr_class_ops,
+ 	.priv_size	= sizeof(struct nss_wrr_sched_data),
+ 	.owner		= THIS_MODULE
+--- a/openvpn/plugins/Makefile
++++ b/openvpn/plugins/Makefile
+@@ -1,7 +1,7 @@
+ 
+ # Makefile for the ovpn plugins
+ 
+-ccflags-y := $(NSS_CCFLAGS) -I$(obj) -I$(obj)/../../exports -I$(obj)/include -I$(obj)/../src -I$(STAGING_DIR)/usr/include/qca-nss-ecm
++ccflags-y := -I$(obj) -I$(obj)/../../exports -I$(obj)/include -I$(obj)/../src -I$(STAGING_DIR)/usr/include/qca-nss-ecm
+ 
+ ccflags-y += -DNSS_CLIENT_BUILD_ID="$(BUILD_ID)"
+ ccflags-y += -DNSS_OVPNMGR_DEBUG_LEVEL=0
+--- a/openvpn/plugins/nss_ovpn_sk.c
++++ b/openvpn/plugins/nss_ovpn_sk.c
+@@ -19,7 +19,6 @@
+  *	Socket implementation for OVPN.
+  */
+ 
+-#include <linux/version.h>
+ #include <linux/net.h>
+ #include <linux/socket.h>
+ #include <net/sock.h>
+@@ -264,11 +263,7 @@ static int nss_ovpn_sk_update_ipv6_tuple
+ 	struct rt6_info *rt6;
+ 	int addr_type;
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 6, 0))
+-	rt6 = rt6_lookup(dev_net(pinfo->dev), (struct in6_addr *)tun_data->tun_hdr.dst_ip, NULL, 0, 0);
+-#else
+ 	rt6 = rt6_lookup(dev_net(pinfo->dev), (struct in6_addr *)tun_data->tun_hdr.dst_ip, NULL, 0, 0, 0);
+-#endif
+ 
+ 	if (!rt6) {
+ 		nss_ovpn_sk_warn("%px: Failed to find IPv6 route.\n", pinfo);
+@@ -411,11 +406,7 @@ static int nss_ovpn_sk_tun_add(struct so
+ 	 * Bring up tunnel device.
+ 	 */
+ 	rtnl_lock();
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0))
+-	err = dev_open(tun_dev);
+-#else
+ 	err = dev_open(tun_dev, NULL);
+-#endif
+ 	rtnl_unlock();
+ 
+ 	if (err) {
+@@ -865,11 +856,7 @@ int nss_ovpn_sk_send(struct sk_buff *skb
+ 	 */
+ 	skb_orphan(skb);
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
+-	nf_reset(skb);
+-#else
+ 	nf_reset_ct(skb);
+-#endif
+ 
+ 	/* Enqueue packet */
+ 	if (sock_queue_rcv_skb(sk, skb) < 0) {
+--- a/openvpn/src/Makefile
++++ b/openvpn/src/Makefile
+@@ -1,6 +1,6 @@
+ # Makefile for the ovpnmgr client
+ 
+-ccflags-y := $(NSS_CCFLAGS) -I$(obj) -I$(obj)/../../exports -I$(obj)/include -I$(obj)/../plugins
++ccflags-y := -I$(obj) -I$(obj)/../../exports -I$(obj)/include -I$(obj)/../plugins
+ ccflags-y += -DNSS_CLIENT_BUILD_ID="$(BUILD_ID)"
+ ccflags-y += -DNSS_OVPNMGR_DEBUG_LEVEL=0 -DNSS_OVPNMGR_DEBUG_ENABLE_PKT_DUMP=0
+ ccflags-y += -Wall -Werror
+--- a/openvpn/src/nss_ovpnmgr.c
++++ b/openvpn/src/nss_ovpnmgr.c
+@@ -19,7 +19,6 @@
+  */
+ #include <linux/module.h>
+ #include <linux/etherdevice.h>
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/crypto.h>
+ #include <linux/if_tun.h>
+@@ -99,11 +98,7 @@ static int nss_ovpnmgr_netdevice_event(s
+ 		 */
+ 		read_unlock_bh(&ovpnmgr_ctx.lock);
+ 		if (event == NETDEV_UP) {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0))
+-			dev_open(nss_dev);
+-#else
+ 			dev_open(nss_dev, NULL);
+-#endif
+ 
+ 		} else {
+ 			dev_close(nss_dev);
+--- a/openvpn/src/nss_ovpnmgr_app.c
++++ b/openvpn/src/nss_ovpnmgr_app.c
+@@ -18,7 +18,6 @@
+  * nss_ovpnmgr_app.c
+  */
+ #include <linux/etherdevice.h>
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/module.h>
+ #include <linux/if_tun.h>
+@@ -62,11 +61,7 @@ static struct net_device *nss_ovpnmgr_ap
+ 		return dev;
+ 	}
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 6, 0))
+-	rt6 = rt6_lookup(&init_net, (const struct in6_addr *)rt->ip_addr, NULL, 0, 0);
+-#else
+ 	rt6 = rt6_lookup(&init_net, (const struct in6_addr *)rt->ip_addr, NULL, 0, 0, 0);
+-#endif
+ 
+ 	if (!rt6) {
+ 		return NULL;
+--- a/openvpn/src/nss_ovpnmgr_crypto.c
++++ b/openvpn/src/nss_ovpnmgr_crypto.c
+@@ -34,6 +34,7 @@
+ #include <nss_api_if.h>
+ #include <nss_cryptoapi.h>
+ #include <nss_qvpn.h>
++#include <linux/vmalloc.h>
+ #include "nss_ovpnmgr.h"
+ #include "nss_ovpnmgr_crypto.h"
+ #include "nss_ovpnmgr_tun.h"
+--- a/openvpn/src/nss_ovpnmgr_tun.c
++++ b/openvpn/src/nss_ovpnmgr_tun.c
+@@ -18,7 +18,6 @@
+  * nss_ovpnmgr_tun.c
+  */
+ #include <linux/etherdevice.h>
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/module.h>
+ #include <linux/if_tun.h>
+@@ -130,11 +129,7 @@ static void nss_ovpnmgr_tun_ipv6_forward
+ 	skb->protocol = htons(ETH_P_IPV6);
+ 	ip6h = ipv6_hdr(skb);
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 6, 0))
+-	rt6 = rt6_lookup(dev_net(app->dev), &ip6h->daddr, &ip6h->saddr, 0, 0);
+-#else
+ 	rt6 = rt6_lookup(dev_net(app->dev), &ip6h->daddr, &ip6h->saddr, 0, 0, 0);
+-#endif
+ 	if (!rt6) {
+ 		nss_ovpnmgr_warn("%px: Failed to find IPv6 route.\n", skb);
+ 		tun->outer.stats.host_pkt_drop++;
+@@ -488,11 +483,7 @@ static void nss_ovpnmgr_tun_dev_setup(st
+ 	dev->header_ops = NULL;
+ 	dev->netdev_ops = &ovpnmgr_dev_ops;
+ 	dev->ethtool_ops = NULL;
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 11, 8))
+-	dev->destructor = nss_ovpnmgr_tun_free;
+-#else
+ 	dev->priv_destructor = nss_ovpnmgr_tun_free;
+-#endif
+ }
+ 
+ /*
+--- a/portifmgr/nss_portifmgr.c
++++ b/portifmgr/nss_portifmgr.c
+@@ -262,7 +262,7 @@ struct net_device *nss_portifmgr_create_
+ 	ndev->vlan_features |= NSS_PORTIFMGR_SUPPORTED_FEATURES;
+ 	ndev->wanted_features |= NSS_PORTIFMGR_SUPPORTED_FEATURES;
+ 	ndev->mtu = real_dev->mtu - NSS_PORTIFMGR_EXTRA_HEADER_SIZE;
+-	strlcpy(ndev->name, name, IFNAMSIZ);
++	strscpy(ndev->name, name, IFNAMSIZ);
+ 
+ 	/*
+ 	 * Setup temp mac address, this can be changed with ifconfig later
+--- a/pptp/nss_connmgr_pptp.c
++++ b/pptp/nss_connmgr_pptp.c
+@@ -17,7 +17,6 @@
+  **************************************************************************
+  */
+ 
+-#include <linux/version.h>
+ #include <linux/module.h>
+ #include <linux/types.h>
+ #include <linux/rwlock_types.h>
+@@ -379,11 +378,7 @@ static void nss_connmgr_pptp_decap_excep
+ 			skb_reset_network_header(skb);
+ 			skb_set_transport_header(skb, iph_outer->ihl*4);
+ 			skb->skb_iif = dev->ifindex;
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0))
+-			ip_local_out(skb);
+-#else
+ 			ip_local_out(&init_net, skb->sk, skb);
+-#endif
+ 			return;
+ 		}
+ 	}
+--- a/profiler/Makefile
++++ b/profiler/Makefile
+@@ -4,4 +4,3 @@ ccflags-y += -Wall -Werror
+ obj-m += qca-nss-profile-drv.o
+ qca-nss-profile-drv-objs := profile.o
+ 
+-ccflags-y += $(NSS_CCFLAGS)
+--- a/profiler/profile.c
++++ b/profiler/profile.c
+@@ -137,7 +137,7 @@ int profile_register_performance_counter
+ 	}
+ 
+ 	profile_counter[i] = counter;
+-	strlcpy(profile_name[i], name, PROFILE_COUNTER_NAME_LENGTH);
++	strscpy(profile_name[i], name, PROFILE_COUNTER_NAME_LENGTH);
+ 	profile_name[i][PROFILE_COUNTER_NAME_LENGTH - 1] = 0;
+ 
+ 	return 1;
+@@ -316,7 +316,7 @@ static int profile_make_stats_packet(cha
+ 	counter_ptr = (struct profile_counter *)ptr;
+ 	for (n = 0; n < profile_num_counters; ++n) {
+ 		counter_ptr->value = htonl(*profile_counter[n]);
+-		strlcpy(counter_ptr->name, profile_name[n],
++		strscpy(counter_ptr->name, profile_name[n],
+ 			PROFILE_COUNTER_NAME_LENGTH);
+ 		counter_ptr++;
+ 	}
+--- a/pvxlanmgr/nss_pvxlanmgr.c
++++ b/pvxlanmgr/nss_pvxlanmgr.c
+@@ -186,16 +186,6 @@ static struct rtnl_link_stats64 *nss_pvx
+ 	return stats;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 6, 0))
+-/*
+- * nss_pvxlanmgr_dev_tunnel_stats()
+- *	Netdev ops function to retrieve stats for kernel version < 4.6
+- */
+-static struct rtnl_link_stats64 *nss_pvxlanmgr_dev_tunnel_stats(struct net_device *dev, struct rtnl_link_stats64 *stats)
+-{
+-	return nss_pvxlanmgr_get_tunnel_stats(dev, stats);
+-}
+-#else
+ /*
+  * nss_pvxlanmgr_dev_tunnel_stats()
+  *	Netdev ops function to retrieve stats for kernel version > 4.6
+@@ -204,7 +194,6 @@ static void nss_pvxlanmgr_dev_tunnel_sta
+ {
+ 	nss_pvxlanmgr_get_tunnel_stats(dev, stats);
+ }
+-#endif
+ 
+ /*
+  * nss_pvxlanmgr_unregister_with_nss()
+@@ -299,11 +288,7 @@ static void nss_pvxlanmgr_dummy_netdev_s
+ 	dev->header_ops = NULL;
+ 	dev->netdev_ops = &nss_pvxlanmgr_netdev_ops;
+ 
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 11, 8))
+-	dev->destructor = NULL;
+-#else
+ 	dev->priv_destructor = NULL;
+-#endif
+ 
+ 	memcpy(dev->dev_addr, "\x00\x00\x00\x00\x00\x00", dev->addr_len);
+ 	memset(dev->broadcast, 0xff, dev->addr_len);
+--- a/tls/Makefile
++++ b/tls/Makefile
+@@ -1,6 +1,6 @@
+ # Makefile for TLS manager
+ 
+-ccflags-y += $(NSS_CCFLAGS) -I$(obj)/../exports
++ccflags-y += -I$(obj)/../exports
+ #ccflags-y += -DNSS_TLSMGR_DEBUG_DUMP
+ ccflags-y += -DNSS_TLSMGR_DEBUG_LEVEL=3
+ ccflags-y += -DNSS_TLSMGR_BUILD_ID=\"'Build_ID - $(shell date +'%m/%d/%y, %H:%M:%S') SoC=$(SoC)'\"
+--- a/tls/nss_tlsmgr.c
++++ b/tls/nss_tlsmgr.c
+@@ -31,6 +31,7 @@
+ #include <nss_api_if.h>
+ 
+ #include <nss_tls.h>
++#include <linux/vmalloc.h>
+ #include "nss_tlsmgr_priv.h"
+ 
+ /*
+--- a/tls/nss_tlsmgr_crypto.c
++++ b/tls/nss_tlsmgr_crypto.c
+@@ -52,6 +52,7 @@
+ #include <nss_cryptoapi.h>
+ #include <nss_tls.h>
+ #include <nss_tlsmgr.h>
++#include <linux/vmalloc.h>
+ 
+ #include "nss_tlsmgr_ctx.h"
+ #include "nss_tlsmgr_crypto.h"
+--- a/tls/nss_tlsmgr_ctx.c
++++ b/tls/nss_tlsmgr_ctx.c
+@@ -41,6 +41,7 @@
+ 
+ #include <nss_tls.h>
+ #include <nss_tlsmgr.h>
++#include <linux/vmalloc.h>
+ #include "nss_tlsmgr_buf.h"
+ #include "nss_tlsmgr_ctx.h"
+ #include "nss_tlsmgr_crypto.h"
+--- a/tls/nss_tlsmgr_tun.c
++++ b/tls/nss_tlsmgr_tun.c
+@@ -21,7 +21,6 @@
+  *	NSS TLS Manager tunnel onbject
+  */
+ 
+-#include <linux/version.h>
+ #include <linux/types.h>
+ #include <linux/ip.h>
+ #include <linux/tcp.h>
+@@ -116,16 +115,6 @@ static struct rtnl_link_stats64 *nss_tls
+ 	return stats;
+ }
+ 
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 6, 0))
+-/*
+- * nss_tlsmgr_tun_stats64()
+- * 	Netdev ops function to retrieve stats for kernel version < 4.6
+- */
+-static struct rtnl_link_stats64 *nss_tlsmgr_tun_stats64(struct net_device *dev, struct rtnl_link_stats64 *stats)
+-{
+-	return nss_tlsmgr_get_tun_stats64(dev, stats);
+-}
+-#else
+ /*
+  * nss_tlsmgr_tun_stats64()
+  * 	Netdev ops function to retrieve stats for kernel version >= 4.6
+@@ -134,7 +123,6 @@ static void nss_tlsmgr_tun_stats64(struc
+ {
+ 	nss_tlsmgr_get_tun_stats64(dev, stats);
+ }
+-#endif
+ 
+ /*
+  * nss_tlsmgr_tun_change_mtu()
+@@ -216,17 +204,9 @@ static void nss_tlsmgr_tun_free_work(str
+  * nss_tlsmgr_notify_event()
+  *	TLS manager notification timer handler
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+-static void nss_tlsmgr_notify_event(unsigned long data)
+-#else
+ static void nss_tlsmgr_notify_event(struct timer_list *tm)
+-#endif
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+-	struct nss_tlsmgr_tun *tun = (struct nss_tlsmgr_tun *)data;
+-#else
+ 	struct nss_tlsmgr_tun *tun = from_timer(tun, tm, notify.timer);
+-#endif
+ 	nss_tlsmgr_notify_callback_t cb;
+ 	struct nss_tlsmgr_stats stats;
+ 	void *app_data;
+@@ -248,17 +228,9 @@ static void nss_tlsmgr_notify_event(stru
+  * nss_tlsmgr_notify_decongestion()
+  *	TLS manager decongestion notification
+  */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+-static void nss_tlsmgr_notify_decongestion(unsigned long data)
+-#else
+ static void nss_tlsmgr_notify_decongestion(struct timer_list *tm)
+-#endif
+ {
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+-	struct nss_tlsmgr_tun *tun = (struct nss_tlsmgr_tun *)data;
+-#else
+ 	struct nss_tlsmgr_tun *tun = from_timer(tun, tm, notify.timer);
+-#endif
+ 	nss_tlsmgr_decongest_callback_t cb;
+ 	void *app_data;
+ 
+@@ -393,18 +365,8 @@ struct net_device *nss_tlsmgr_tun_add(ns
+ 	/*
+ 	 * Initialize Event notification and Decongestion timer
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+-	init_timer(&tun->notify.timer);
+-	tun->notify.timer.function = nss_tlsmgr_notify_event;
+-	tun->notify.timer.data = (unsigned long)tun;
+-
+-	init_timer(&tun->decongest.timer);
+-	tun->decongest.timer.function = nss_tlsmgr_notify_decongestion;
+-	tun->decongest.timer.data = (unsigned long)tun;
+-#else
+ 	timer_setup(&tun->notify.timer, nss_tlsmgr_notify_event, 0);
+ 	timer_setup(&tun->decongest.timer, nss_tlsmgr_notify_decongestion, 0);
+-#endif
+ 
+ 	INIT_LIST_HEAD(&tun->free_list);
+ 	INIT_WORK(&tun->free_work, nss_tlsmgr_tun_free_work);
+--- a/tunipip6/Makefile
++++ b/tunipip6/Makefile
+@@ -5,6 +5,3 @@ ccflags-y += -DNSS_TUNIPIP6_DEBUG_LEVEL=
+ ccflags-y += -Wall -Werror
+ obj-m += qca-nss-tunipip6.o
+ qca-nss-tunipip6-objs := nss_connmgr_tunipip6.o nss_connmgr_tunipip6_sysctl.o nss_connmgr_tunipip6_stats.o
+-ifneq ($(findstring 4.4, $(KERNELVERSION)),)
+-ccflags-y += -DDRAFT03_SUPPORT
+-endif
+--- a/tunipip6/nss_connmgr_tunipip6.c
++++ b/tunipip6/nss_connmgr_tunipip6.c
+@@ -29,6 +29,7 @@
+ #include <net/ip_tunnels.h>
+ #include <net/ip6_tunnel.h>
+ #include <nss_api_if.h>
++#include <linux/vmalloc.h>
+ #include "nss_connmgr_tunipip6.h"
+ #include "nss_connmgr_tunipip6_sysctl.h"
+ #include "nss_connmgr_tunipip6_priv.h"
+@@ -497,14 +498,6 @@ static void nss_tunipip6_dev_parse_param
+ 	tnlcfg->tunnel_type = NSS_CONNMGR_TUNIPIP6_TUNNEL_MAPE;
+ 
+ #if IS_ENABLED(CONFIG_MAP_E_SUPPORT)
+-#ifdef DRAFT03_SUPPORT
+-	/*
+-	 * Set "tunnel_type" based on draft03.
+-	 */
+-	if (tunnel->parms.draft03) {
+-		tnlcfg->tunnel_type = NSS_CONNMGR_TUNIPIP6_TUNNEL_MAPE_DRAFT03;
+-	}
+-#endif
+ #endif
+ }
+ 
+@@ -570,14 +563,12 @@ enum nss_connmgr_tunipip6_err_codes nss_
+ 	struct nss_tunipip6_instance *ntii;
+ 
+ #if IS_ENABLED(CONFIG_MAP_E_SUPPORT)
+-#ifndef DRAFT03_SUPPORT
+ 	if ((tnlcfg->tunnel_type == NSS_CONNMGR_TUNIPIP6_TUNNEL_4RD) ||
+ 		tnlcfg->tunnel_type == NSS_CONNMGR_TUNIPIP6_TUNNEL_MAPE_DRAFT03) {
+ 		nss_tunipip6_warning("Draftf03 is not supported\n");
+ 		return NSS_CONNMGR_TUNIPIP6_TUN_CREATE_FAILURE;
+ 	}
+ #endif
+-#endif
+ 	/*
+ 	 * For standard tunnel, netdev and tnlcfg validation is done
+ 	 * inside nss_tunipip6_dev_parse_param().
+--- a/tunipip6/nss_connmgr_tunipip6_stats.c
++++ b/tunipip6/nss_connmgr_tunipip6_stats.c
+@@ -17,6 +17,7 @@
+  */
+ 
+ #include <nss_api_if.h>
++#include <linux/vmalloc.h>
+ #include "nss_connmgr_tunipip6_priv.h"
+ 
+ /*
+--- a/tunipip6/nss_connmgr_tunipip6_sysctl.c
++++ b/tunipip6/nss_connmgr_tunipip6_sysctl.c
+@@ -108,7 +108,7 @@ static int nss_tunipip6_data_parser(stru
+ 		 */
+ 
+ 		if (!strcmp(param, "netdev")) {
+-			strlcpy(dev_name, value, 30);
++			strscpy(dev_name, value, 30);
+ 			dev = dev_get_by_name(&init_net, dev_name);
+ 			if (!dev) {
+ 				kfree(pfree);
+@@ -147,7 +147,7 @@ static int nss_tunipip6_data_parser(stru
+ 		}
+ 
+ 		if (!strcmp(param, "ipv4_prefix")) {
+-			strlcpy(ipv4_prefix_str, value, 30);
++			strscpy(ipv4_prefix_str, value, 30);
+ 			ret = in4_pton(ipv4_prefix_str, -1, (uint8_t *)&ipv4_prefix, -1, NULL);
+ 			if (ret != 1) {
+ 				kfree(pfree);
+@@ -173,7 +173,7 @@ static int nss_tunipip6_data_parser(stru
+ 		}
+ 
+ 		if (!strcmp(param, "ipv6_prefix")) {
+-			strlcpy(ipv6_prefix_str, value, 100);
++			strscpy(ipv6_prefix_str, value, 100);
+ 			ret = in6_pton(ipv6_prefix_str, -1, (uint8_t *)&ipv6_prefix, -1, NULL);
+ 			if (ret != 1) {
+ 				kfree(pfree);
+@@ -199,7 +199,7 @@ static int nss_tunipip6_data_parser(stru
+ 		}
+ 
+ 		if (!strcmp(param, "ipv6_suffix")) {
+-			strlcpy(ipv6_suffix_str, value, 100);
++			strscpy(ipv6_suffix_str, value, 100);
+ 			ret = in6_pton(ipv6_suffix_str, -1, (uint8_t *)&ipv6_suffix, -1, NULL);
+ 			if (ret != 1) {
+ 				kfree(pfree);
+--- a/vlan/nss_vlan_mgr.c
++++ b/vlan/nss_vlan_mgr.c
+@@ -1540,7 +1540,7 @@ static int nss_vlan_mgr_update_ppe_tpid(
+  * nss_vlan_mgr_tpid_proc_handler()
+  *	Sets customer TPID and service TPID
+  */
+-static int nss_vlan_mgr_tpid_proc_handler(struct ctl_table *ctl,
++static int nss_vlan_mgr_tpid_proc_handler(const struct ctl_table *ctl,
+ 					  int write, void __user *buffer,
+ 					  size_t *lenp, loff_t *ppos)
+ {
+@@ -1568,8 +1568,7 @@ static struct ctl_table nss_vlan_table[]
+ 		.maxlen		= sizeof(int),
+ 		.mode		= 0644,
+ 		.proc_handler	= &nss_vlan_mgr_tpid_proc_handler,
+-	},
+-	{ }
++	}
+ };
+ 
+ /*
+--- a/vxlanmgr/nss_vxlanmgr_tunnel.c
++++ b/vxlanmgr/nss_vxlanmgr_tunnel.c
+@@ -19,7 +19,6 @@
+ #include <linux/ip.h>
+ #include <linux/netdevice.h>
+ #include <linux/skbuff.h>
+-#include <linux/version.h>
+ #include <net/addrconf.h>
+ #include <net/dst.h>
+ #include <net/flow.h>
+@@ -85,33 +84,6 @@ static nss_tx_status_t nss_vxlanmgr_tunn
+  * nss_vxlanmgr_tunnel_flags_parse()
+  *	Function to parse vxlan flags.
+  */
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 5, 7))
+-static uint16_t nss_vxlanmgr_tunnel_flags_parse(struct vxlan_dev *priv)
+-{
+-	uint16_t flags = 0;
+-	uint32_t priv_flags = priv->flags;
+-
+-	if (priv_flags & VXLAN_F_RSC)
+-		return flags;
+-	if (priv_flags & VXLAN_F_GBP)
+-		flags |= NSS_VXLAN_RULE_FLAG_GBP_ENABLED;
+-
+-	if (priv_flags & VXLAN_F_IPV6) {
+-		flags |= NSS_VXLAN_RULE_FLAG_IPV6;
+-		if (!(priv_flags & VXLAN_F_UDP_ZERO_CSUM6_TX))
+-			flags |= NSS_VXLAN_RULE_FLAG_ENCAP_L4_CSUM_REQUIRED;
+-	} else {
+-		flags |= NSS_VXLAN_RULE_FLAG_IPV4;
+-		if (priv_flags & VXLAN_F_UDP_CSUM)
+-			flags |= NSS_VXLAN_RULE_FLAG_ENCAP_L4_CSUM_REQUIRED;
+-	}
+-
+-	if (priv->cfg.tos == 1)
+-		flags |= NSS_VXLAN_RULE_FLAG_INHERIT_TOS;
+-
+-	return (flags | NSS_VXLAN_RULE_FLAG_UDP);
+-}
+-#else
+ static uint16_t nss_vxlanmgr_tunnel_flags_parse(struct vxlan_dev *priv)
+ {
+ 	uint16_t flags = 0;
+@@ -140,7 +112,6 @@ static uint16_t nss_vxlanmgr_tunnel_flag
+ 
+ 	return (flags | NSS_VXLAN_RULE_FLAG_UDP);
+ }
+-#endif
+ 
+ /*
+  * nss_vxlanmgr_tunnel_fill_src_ip()
+@@ -155,13 +126,8 @@ static bool nss_vxlanmgr_tunnel_fill_src
+ 	struct flowi4 fl4;
+ 	struct flowi6 fl6;
+ 	struct rtable *rt = NULL;
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 5, 7))
+-	struct dst_entry *dst = NULL;
+-	int err;
+-#else
+ 	const struct in6_addr *final_dst = NULL;
+ 	struct dst_entry *dentry;
+-#endif
+ 
+ 	/*
+ 	 * IPv4
+@@ -200,15 +166,9 @@ static bool nss_vxlanmgr_tunnel_fill_src
+ 		fl6.daddr = rem_ip->sin6.sin6_addr;
+ 		fl6.saddr = src_ip->sin6.sin6_addr;
+ 
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 5, 7))
+-		err = ipv6_stub->ipv6_dst_lookup(vxlan->net,
+-				vxlan->vn6_sock->sock->sk, &dst, &fl6);
+-		if (err < 0) {
+-#else
+ 		dentry = ipv6_stub->ipv6_dst_lookup_flow(vxlan->net,
+ 				vxlan->vn6_sock->sock->sk, &fl6, final_dst);
+ 		if (!dentry) {
+-#endif
+ 			nss_vxlanmgr_warn("No route, drop packet.\n");
+ 			return false;
+ 		}
+@@ -556,11 +516,7 @@ static void nss_vxlanmgr_tunnel_fdb_upda
+ 	for (i = 0; i < nentries; i++) {
+ 		if (likely(db_stats->entry[i].hits)) {
+ 			mac = (uint8_t *)db_stats->entry[i].mac;
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(4, 5, 7))
+-			vxlan_fdb_update_mac(priv, mac);
+-#else
+ 			vxlan_fdb_update_mac(priv, mac, vni);
+-#endif
+ 		}
+ 	}
+ }

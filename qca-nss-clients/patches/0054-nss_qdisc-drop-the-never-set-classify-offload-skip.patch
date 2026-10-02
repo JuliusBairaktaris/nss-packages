@@ -1,0 +1,27 @@
+From: Julius Bairaktaris <julius@bairaktaris.de>
+Subject: [PATCH] nss_qdisc: drop the never-set classify-offload skip
+
+skb_skip_tc_classify_offload() tests an sk_buff bit that only the QSDK
+IFB driver sets. The kernel here never sets it, so the test is always
+false; the bit and its helpers are gone from the kernel.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+---
+--- a/nss_qdisc/nss_qdisc.c
++++ b/nss_qdisc/nss_qdisc.c
+@@ -1219,14 +1219,6 @@ extern int nss_qdisc_enqueue(struct sk_b
+ 		return NET_XMIT_SUCCESS;
+ 	}
+ 
+-	/*
+-	 * Skip the shaping of already shaped packets.
+-	 */
+-	if (skb_skip_tc_classify_offload(skb)) {
+-		nss_qdisc_mark_and_schedule(nq->qdisc, skb);
+-		return NET_XMIT_SUCCESS;
+-	}
+-
+ 	if (!nq->is_virtual) {
+ 		/*
+ 		 * TX to an NSS physical - the shaping will occur as part of normal
