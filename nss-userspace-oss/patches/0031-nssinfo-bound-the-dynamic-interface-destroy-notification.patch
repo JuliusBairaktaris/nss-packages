@@ -30,11 +30,9 @@ anywhere, and any future notification producer re-opens both.
 
 Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
-Index: nss-userspace-oss-13.0.2024.11.27~7233e22/nssinfo/src/nssinfo.c
-===================================================================
---- nss-userspace-oss-13.0.2024.11.27~7233e22.orig/nssinfo/src/nssinfo.c
-+++ nss-userspace-oss-13.0.2024.11.27~7233e22/nssinfo/src/nssinfo.c
-@@ -632,7 +632,7 @@ static void nssinfo_deinit(struct nss_nl
+--- a/nssinfo/src/nssinfo.c
++++ b/nssinfo/src/nssinfo.c
+@@ -634,7 +634,7 @@ static void nssinfo_deinit(struct nss_nl
  			node = nodes[core][i];
  			if (node) {
  				assert(node->subsystem_id != NSS_NLCMN_SUBSYS_DYNAMIC_INTERFACE);
@@ -43,10 +41,8 @@ Index: nss-userspace-oss-13.0.2024.11.27~7233e22/nssinfo/src/nssinfo.c
  			}
  		}
  	}
-Index: nss-userspace-oss-13.0.2024.11.27~7233e22/nssinfo/src/nssinfo.h
-===================================================================
---- nss-userspace-oss-13.0.2024.11.27~7233e22.orig/nssinfo/src/nssinfo.h
-+++ nss-userspace-oss-13.0.2024.11.27~7233e22/nssinfo/src/nssinfo.h
+--- a/nssinfo/src/nssinfo.h
++++ b/nssinfo/src/nssinfo.h
 @@ -183,6 +183,36 @@ static inline bool nssinfo_coreid_ifnum_
  }
  
@@ -84,10 +80,8 @@ Index: nss-userspace-oss-13.0.2024.11.27~7233e22/nssinfo/src/nssinfo.h
   * @brief initialize all the modules
   *
   * @param flow_file[IN] parse it and display output accordingly
-Index: nss-userspace-oss-13.0.2024.11.27~7233e22/nssinfo/src/nssinfo_dynamic_interface.c
-===================================================================
---- nss-userspace-oss-13.0.2024.11.27~7233e22.orig/nssinfo/src/nssinfo_dynamic_interface.c
-+++ nss-userspace-oss-13.0.2024.11.27~7233e22/nssinfo/src/nssinfo_dynamic_interface.c
+--- a/nssinfo/src/nssinfo_dynamic_interface.c
++++ b/nssinfo/src/nssinfo_dynamic_interface.c
 @@ -27,13 +27,8 @@
  static void nssinfo_dynamic_interface_destroy_notify(void *data)
  {

@@ -3,17 +3,17 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=nss-userspace-oss
 PKG_RELEASE:=2
 
-# Source: https://git.codelinaro.org/clo/qsdk/oss/nss-userspace.git @ 9584ff2 (pre-generated 'git archive' of the commit).
-# Head of NHSS.RDK.14.0.r4, the newest branch this repository carries.
+# Source: https://git.codelinaro.org/clo/qsdk/oss/nss-userspace.git @ dc142b3 (pre-generated 'git archive' of the commit).
+# Head of win.nss.1.0.r39, the newest branch this repository carries.
 # Fetched from our release mirror so the download is deterministic and hash-verified;
 # git-proto regenerates the zstd archive locally and its hash varies by toolchain.
-PKG_SOURCE_DATE:=2026-06-24
-PKG_SOURCE_VERSION:=9584ff2
+PKG_SOURCE_DATE:=2026-09-23
+PKG_SOURCE_VERSION:=dc142b3
 QSDK_VERSION:=14.0
 PKG_VERSION:=$(QSDK_VERSION).$(subst -,.,$(PKG_SOURCE_DATE))~$(PKG_SOURCE_VERSION)
 PKG_SOURCE:=$(PKG_NAME)-$(subst ~,.,$(PKG_VERSION)).tar.zst
 PKG_SOURCE_URL:=https://github.com/JuliusBairaktaris/nss-packages/releases/download/nss-source-tarballs
-PKG_HASH:=616e852c14acde8fe05dfc9b661b4ee7988d5d76bbd0533386afe0512efce70a
+PKG_HASH:=85020a2bf633784a022e541890f4a9a5fab65cd5bd65c4ce7b71a777ccc67dd7
 
 PKG_BUILD_PARALLEL:=1
 PKG_FLAGS:=nonshared
