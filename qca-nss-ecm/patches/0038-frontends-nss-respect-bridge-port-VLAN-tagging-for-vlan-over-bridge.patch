@@ -29,7 +29,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 
 --- a/ecm_interface.c
 +++ b/ecm_interface.c
-@@ -774,6 +774,118 @@ struct net_device *ecm_interface_get_and
+@@ -773,6 +773,118 @@ struct net_device *ecm_interface_get_and
  }
  EXPORT_SYMBOL(ecm_interface_get_and_hold_dev_master);
  
@@ -200,7 +200,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  			/*
  			 * If we have not yet got an ethernet mac then take this one (very unlikely as mac should have been propagated to the slave (outer) device
-@@ -1085,14 +1102,31 @@ static void ecm_nss_non_ported_ipv4_conn
+@@ -1095,14 +1112,31 @@ static void ecm_nss_non_ported_ipv4_conn
  			}
  
  			/*
@@ -318,7 +318,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  			 * If we have not yet got an ethernet mac then take this one (very unlikely as mac should have been propagated to the slave (outer) device
 --- a/frontends/nss/ecm_nss_ported_ipv4.c
 +++ b/frontends/nss/ecm_nss_ported_ipv4.c
-@@ -674,14 +674,31 @@ static void ecm_nss_ported_ipv4_connecti
+@@ -663,14 +663,31 @@ static void ecm_nss_ported_ipv4_connecti
  			}
  
  			/*
@@ -357,7 +357,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  			/*
  			 * If we have not yet got an ethernet mac then take this one (very unlikely as mac should have been propagated to the slave (outer) device
-@@ -1033,14 +1050,31 @@ static void ecm_nss_ported_ipv4_connecti
+@@ -1022,14 +1039,31 @@ static void ecm_nss_ported_ipv4_connecti
  			}
  
  			/*
@@ -398,7 +398,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  			 * If we have not yet got an ethernet mac then take this one (very unlikely as mac should have been propagated to the slave (outer) device
 --- a/frontends/nss/ecm_nss_ported_ipv6.c
 +++ b/frontends/nss/ecm_nss_ported_ipv6.c
-@@ -676,14 +676,31 @@ static void ecm_nss_ported_ipv6_connecti
+@@ -665,14 +665,31 @@ static void ecm_nss_ported_ipv6_connecti
  			}
  
  			/*
@@ -437,7 +437,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  
  			/*
  			 * If we have not yet got an ethernet mac then take this one (very unlikely as mac should have been propagated to the slave (outer) device
-@@ -1010,14 +1027,31 @@ static void ecm_nss_ported_ipv6_connecti
+@@ -999,14 +1016,31 @@ static void ecm_nss_ported_ipv6_connecti
  			}
  
  			/*
