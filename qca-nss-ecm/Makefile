@@ -21,6 +21,8 @@ PKG_FLAGS:=nonshared
 PKG_BUILD_FLAGS:=gc-sections lto
 
 PKG_CONFIG_DEPENDS:= \
+	CONFIG_KERNEL_IP_MROUTE \
+	CONFIG_KERNEL_IPV6_MROUTE \
 	CONFIG_NSS_DRV_PPPOE_ENABLE \
 	CONFIG_NSS_DRV_RMNET_ENABLE \
 	CONFIG_NSS_FIRMWARE_VERSION_11_4 \
@@ -28,7 +30,6 @@ PKG_CONFIG_DEPENDS:= \
 	CONFIG_PACKAGE_kmod-ipsec \
 	CONFIG_PACKAGE_kmod-nat46 \
 	CONFIG_PACKAGE_kmod-pppoe \
-	CONFIG_PACKAGE_kmod-qca-mcs \
 	CONFIG_PACKAGE_kmod-qca-nss-drv \
 	CONFIG_PACKAGE_kmod-qca-nss-drv-igs
 
@@ -46,7 +47,6 @@ define KernelPackage/qca-nss-ecm
 		   +@(TARGET_qualcommax||TARGET_ipq806x):NSS_DRV_VIRT_IF_ENABLE \
 		   +@(TARGET_qualcommax||TARGET_ipq806x):NSS_DRV_PPPOE_ENABLE \
 		   +PACKAGE_kmod-qca-nss-drv:kmod-qca-nss-drv \
-		   +PACKAGE_kmod-qca-mcs:kmod-qca-mcs \
 		   +PACKAGE_kmod-nat46:kmod-nat46 \
 		   +kmod-ppp \
 		   +kmod-pppoe
@@ -78,7 +78,7 @@ endef
 
 EXTRA_CFLAGS+= \
 		 -I$(STAGING_DIR)/usr/include/qca-nss-drv \
-		 -I$(STAGING_DIR)/usr/include/qca-mcs \
+		 -I$(LINUX_DIR)/net/bridge \
 		 -I$(STAGING_DIR)/usr/include/nat46
 
 ifneq (, $(findstring $(CONFIG_TARGET_BOARD), "qualcommax" "ipq60xx"))
@@ -107,8 +107,13 @@ ifneq ($(CONFIG_PACKAGE_kmod-qca-nss-drv-igs),)
 ECM_MAKE_OPTS+=ECM_CLASSIFIER_DSCP_IGS=y
 endif
 
-ifneq ($(CONFIG_PACKAGE_kmod-qca-mcs),)
-ECM_MAKE_OPTS+=ECM_MULTICAST_ENABLE=y
+# Multicast needs the ipmr/ip6mr MFC offload hooks and reads the
+# bridge MDB directly.
+ifneq ($(CONFIG_KERNEL_IP_MROUTE),)
+ifeq ($(CONFIG_IPV6),$(CONFIG_KERNEL_IPV6_MROUTE))
+ECM_MAKE_OPTS+=ECM_MULTICAST_ENABLE=y \
+			   ECM_MCAST_LINUX_SNOOPER_SUPPORT=y
+endif
 endif
 
 ifneq ($(CONFIG_PACKAGE_kmod-nat46),)
