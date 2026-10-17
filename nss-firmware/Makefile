@@ -82,37 +82,33 @@ define Package/nss-firmware/config
   endmenu
 endef
 
-define nss-firmware-version
-ifneq ($(CONFIG_NSS_FIRMWARE_VERSION_11_4),)
-override NSS_MAJOR=11
-override NSS_MINOR=4
-override NSS_REL=6
-override VERSION_PATH=$(PKG_BUILD_DIR)/QCA_Networking_2021.SPF_11.4/CS
-else
-override NSS_MAJOR=12
-override NSS_MINOR=5
-override NSS_REL=210
-override VERSION_PATH=$(PKG_BUILD_DIR)/QCA_Networking_2024.SPF_12.5/ED1
-endif
+# Both lines are installed as qca-nss<N>-retail-<line>.bin, and the plain
+# name points at the line selected above.
+NSS_LINE_12.5:=210 QCA_Networking_2024.SPF_12.5/ED1
+NSS_LINE_11.4:=6 QCA_Networking_2021.SPF_11.4/CS
+NSS_LINE:=$(if $(CONFIG_NSS_FIRMWARE_VERSION_11_4),11.4,12.5)
+
+define nss-firmware-line
+	$(INSTALL_DIR) $(PKG_BUILD_DIR)/$(IPQ_PLATFORM)/$(2)
+	$(TAR) --strip-components=1 -C $(PKG_BUILD_DIR)/$(IPQ_PLATFORM)/$(2) -xf \
+		$(PKG_BUILD_DIR)/$(word 2,$(NSS_LINE_$(2)))/$(IPQ_PLATFORM).ATH.$(2)/BIN-NSS*.$(2)*-$(word 1,$(NSS_LINE_$(2)))*$(NSS_PROFILE).tar.bz2
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(IPQ_PLATFORM)/$(2)/retail_router0.bin \
+		$(1)/lib/firmware/qca-nss0-retail-$(2).bin
+	$(if $(filter HK,$(NSS_SOC)),$(INSTALL_DATA) \
+		$(PKG_BUILD_DIR)/$(IPQ_PLATFORM)/$(2)/retail_router1.bin \
+		$(1)/lib/firmware/qca-nss1-retail-$(2).bin)
 endef
 
 define Build/Compile
 endef
 
 define Package/nss-firmware-common/install
-	$(eval $(call nss-firmware-version,$(IPQ_PLATFORM)))
-	$(INSTALL_DIR) $(PKG_BUILD_DIR)/$(IPQ_PLATFORM)
-	$(TAR) --strip-components=1 -C $(PKG_BUILD_DIR)/$(IPQ_PLATFORM) -xf \
-		$(VERSION_PATH)/$(IPQ_PLATFORM).ATH.$(NSS_MAJOR).$(NSS_MINOR)/BIN-NSS*.$(NSS_MAJOR).$(NSS_MINOR)*-$(NSS_REL)*$(NSS_PROFILE).tar.bz2
-	$(INSTALL_DIR) $(1)/lib/firmware/
-	$(INSTALL_DATA) \
-		$(PKG_BUILD_DIR)/$(IPQ_PLATFORM)/retail_router0.bin \
-		$(1)/lib/firmware/qca-nss0-retail.bin
-ifeq ($(NSS_SOC),HK)
-	$(INSTALL_DATA) \
-		$(PKG_BUILD_DIR)/$(IPQ_PLATFORM)/retail_router1.bin \
-		$(1)/lib/firmware/qca-nss1-retail.bin
-endif
+	$(INSTALL_DIR) $(1)/lib/firmware
+	$(call nss-firmware-line,$(1),12.5)
+	$(call nss-firmware-line,$(1),11.4)
+	$(LN) qca-nss0-retail-$(NSS_LINE).bin $(1)/lib/firmware/qca-nss0-retail.bin
+	$(if $(filter HK,$(NSS_SOC)),$(LN) qca-nss1-retail-$(NSS_LINE).bin \
+		$(1)/lib/firmware/qca-nss1-retail.bin)
 endef
 
 define Package/nss-firmware-ipq807x/install
