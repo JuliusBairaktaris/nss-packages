@@ -69,17 +69,15 @@ define Package/nss-firmware/config
     config NSS_FIRMWARE_VERSION_12_5
           bool "NSS Firmware 12.5 Release 210"
           help
-               The firmware line the qca-nss-drv source in this tree
-               is pinned against. Does NOT work with NSS MESH
-               (802.11s).
+               The default firmware line. Does not accept an 802.11s
+               mesh interface.
 
     config NSS_FIRMWARE_VERSION_11_4
           bool "NSS Firmware 11.4.0.5 Release 6"
           help
-               The last firmware line with 802.11s mesh support:
-               required for (and selected by) the ath11k NSS mesh
-               offload. Every firmware newer than 11.4 rejects mesh
-               interface allocation.
+               The last firmware line with 802.11s mesh support,
+               needed for mesh offload. Every firmware newer than 11.4
+               rejects mesh interface allocation.
   endchoice
   endmenu
 endef

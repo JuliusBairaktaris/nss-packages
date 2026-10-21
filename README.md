@@ -1,73 +1,34 @@
-# NSS packages for OpenWrt qualcommax
+# NSS firmware for OpenWrt qualcommax
 
-An OpenWrt package feed for Qualcomm NSS offload on IPQ807x and IPQ60xx.
-It runs the NSS cores on top of OpenWrt's upstream `qca_edma` and `qca_ppe`
-ethernet drivers instead of `qca-nss-dp` and `qca-ssdk`. IPQ60xx support is
-new and lightly tested.
+An OpenWrt package feed carrying the Qualcomm NSS firmware for IPQ807x and
+IPQ60xx, for
+[openwrt-ppe-nss](https://github.com/JuliusBairaktaris/openwrt-ppe-nss),
+branch `ppe-nss`. There the NSS cores are driven by `nss-wifi-drv`, and
+wired offload, multicast, bridging and SQM run through the kernel's own
+interfaces (flowtable, switchdev, tc), so no vendor host packages are
+needed.
 
-The OpenWrt tree that uses this feed is
-[openwrt-nss-edma](https://github.com/JuliusBairaktaris/openwrt-nss-edma),
-branches `nss-edma-rework` (Linux 6.18) and `nss-edma-7.3` (6.18 and the
-7.3 testing kernel). They carry the kernel patches and the
-`kmod-qca-ppe-nss` module that connects `qca-nss-drv` to `qca_edma`. The
-packages build for Linux 6.18 and 7.3 only.
-That stack is archived and no longer built into images. The ppe-nss
-images on [ppenss.github.io](https://ppenss.github.io/) take only
-`nss-firmware` from this feed.
+The vendor host stack (`qca-nss-drv`, `qca-nss-ecm`, `qca-nss-clients`,
+`nss-userspace-oss` and `sqm-scripts-nss`) stays on the `edma-nss` branch
+for openwrt-nss-edma.
 
 ## Packages
 
 | Package | Source | Version |
 |---|---|---|
-| `qca-nss-drv` | [lklm/nss-drv](https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-drv) | `win.nss.1.0.r39`, `705629d` |
-| `qca-nss-ecm` | [lklm/qca-nss-ecm](https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-nss-ecm) | `win.nss.1.0.r39`, `7894b76` |
-| `qca-nss-clients` | [lklm/nss-clients](https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-clients) | `NHSS.QSDK.12.5.5`, `51be82d` |
-| `nss-userspace-oss` | [nss-userspace](https://git.codelinaro.org/clo/qsdk/oss/nss-userspace) | `win.nss.1.0.r39`, `dc142b3` |
 | `nss-firmware` | [qosmio/qca-sdk-nss-fw](https://github.com/qosmio/qca-sdk-nss-fw) | 12.5 release 210, or 11.4.0.5 release 6 |
-| `sqm-scripts-nss` | local | `nss-edma.qos` queue setup for SQM |
 
-`qca-nss-clients` has no 14.0 branch. Only the modules this stack uses are
-built: PPPoE, VLAN and bridge managers, the NSS qdisc, ingress shaping
-(IGS), netlink, mirror and the Wi-Fi mesh manager. `nss-userspace-oss`
-builds `libnl-nss` and `nssinfo`.
-
-The default firmware is 12.5-210. Select `NSS_FIRMWARE_VERSION_11_4` for
+`nss-firmware` pulls in the firmware of the subtarget being built. The
+default firmware is 12.5-210. Select `NSS_FIRMWARE_VERSION_11_4` for
 802.11s mesh offload; newer firmware does not support mesh interfaces.
-
-The OpenWrt packaging comes from
-[qosmio/nss-packages](https://github.com/qosmio/nss-packages).
-
-## Runtime behaviour
-
-No module loads at boot. NSS offload is enabled at runtime, and the ECM and
-SQM scripts refuse to start until the NSS data plane is up. On IPQ807x, once
-the NSS firmware runs it receives all wired traffic, so every physical port
-is attached to the NSS data plane.
 
 ## Building
 
 Add the feed to `feeds.conf`:
 
 ```
-src-git nss https://github.com/JuliusBairaktaris/nss-packages.git;edma-nss
+src-git nss https://github.com/JuliusBairaktaris/nss-packages.git;ppe-nss
 ```
-
-A typical selection:
-
-```
-CONFIG_PACKAGE_kmod-qca-nss-drv=y
-CONFIG_PACKAGE_kmod-qca-nss-ecm=y
-CONFIG_PACKAGE_kmod-qca-nss-drv-pppoe=y
-CONFIG_PACKAGE_kmod-qca-nss-drv-qdisc=y
-CONFIG_PACKAGE_kmod-qca-nss-drv-igs=y
-CONFIG_PACKAGE_sqm-scripts-nss=y
-CONFIG_NSS_FIRMWARE_VERSION_12_5=y
-CONFIG_NSS_MEM_PROFILE_MEDIUM=y
-```
-
-Set the memory profile to the board's RAM: `HIGH` for 1 GB, `MEDIUM` for
-512 MB, `LOW` for 256 MB. The default is `HIGH` on ipq807x and `MEDIUM` on
-ipq60xx.
 
 ## Acknowledgements
 
